@@ -1,0 +1,17 @@
+{
+  "name": "hris",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "api:dev": "npm run dev -w @hris/api",
+    "api:test": "npm test -w @hris/api",
+    "api:build": "npm run build -w @hris/api"
+  },
+  "allowScripts": {
+    "@prisma/client@6.19.3": true,
+    "@prisma/engines@6.19.3": true,
+    "prisma@6.19.3": true
+  }
+}

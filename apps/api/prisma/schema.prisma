@@ -1,0 +1,396 @@
+// Skema Fase 1 — Auth & RBAC, Organisasi, Employee, Komponen Gaji, Audit.
+// Acuan: ERD-Sistem-HRIS.md v1.1. Kolom yang diakhiri "Encrypted" berisi ciphertext
+// AES-256-GCM (lihat src/common/crypto), sehingga bertipe TEXT, bukan DECIMAL.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ───────────────────────────── Enums ─────────────────────────────
+
+enum WorkPattern {
+  FIVE_DAY @map("5_day")
+  SIX_DAY  @map("6_day")
+}
+
+enum ProrataMethod {
+  working_days
+  calendar_days
+}
+
+enum RoundingMode {
+  round_half_up
+  floor
+  ceil
+}
+
+enum Gender {
+  male
+  female
+}
+
+enum EmploymentStatus {
+  active
+  resigned
+  terminated
+}
+
+enum ContractType {
+  permanent
+  contract
+  intern
+  probation
+}
+
+enum SalaryComponentType {
+  earning
+  deduction
+}
+
+enum SalaryComponentCalculation {
+  fixed_amount
+  per_attendance_day
+}
+
+enum AuditAction {
+  create
+  update
+  delete
+  view_sensitive
+  export
+  login
+}
+
+// ───────────────────────────── Auth & RBAC ─────────────────────────────
+
+model User {
+  id                  String    @id @default(uuid()) @db.Uuid
+  email               String    @unique @db.VarChar(255)
+  passwordHash        String    @map("password_hash") @db.VarChar(255)
+  mfaSecretEncrypted  String?   @map("mfa_secret_encrypted")
+  mfaPendingEncrypted String?   @map("mfa_pending_encrypted")
+  mfaEnabled          Boolean   @default(false) @map("mfa_enabled")
+  isActive            Boolean   @default(true) @map("is_active")
+  failedLoginCount    Int       @default(0) @map("failed_login_count")
+  lockedUntil         DateTime? @map("locked_until") @db.Timestamptz(6)
+  lastLoginAt         DateTime? @map("last_login_at") @db.Timestamptz(6)
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  employee      Employee?
+  userRoles     UserRole[]
+  refreshTokens RefreshToken[]
+
+  @@map("users")
+}
+
+model Role {
+  id          String   @id @default(uuid()) @db.Uuid
+  companyId   String?  @map("company_id") @db.Uuid // null = role bawaan sistem
+  name        String   @db.VarChar(50)
+  description String?
+  requiresMfa Boolean  @default(false) @map("requires_mfa")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  company         Company?         @relation(fields: [companyId], references: [id])
+  rolePermissions RolePermission[]
+  userRoles       UserRole[]
+
+  // UNIQUE (company_id, name) NULLS NOT DISTINCT dibuat di migrasi SQL
+  @@map("roles")
+}
+
+model Permission {
+  id          String  @id @default(uuid()) @db.Uuid
+  code        String  @unique @db.VarChar(100)
+  description String?
+
+  rolePermissions RolePermission[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String @map("role_id") @db.Uuid
+  permissionId String @map("permission_id") @db.Uuid
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model UserRole {
+  userId    String   @map("user_id") @db.Uuid
+  roleId    String   @map("role_id") @db.Uuid
+  companyId String   @map("company_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role    Role    @relation(fields: [roleId], references: [id])
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@id([userId, roleId, companyId])
+  @@index([userId, companyId])
+  @@map("user_roles")
+}
+
+/// Refresh token disimpan sebagai hash SHA-256. family_id mengelompokkan rantai rotasi;
+/// pemakaian ulang token yang sudah dirotasi mencabut seluruh family (reuse detection).
+model RefreshToken {
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
+  companyId  String    @map("company_id") @db.Uuid
+  familyId   String    @map("family_id") @db.Uuid
+  tokenHash  String    @unique @map("token_hash") @db.VarChar(64)
+  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(6)
+  rotatedAt  DateTime? @map("rotated_at") @db.Timestamptz(6)
+  revokedAt  DateTime? @map("revoked_at") @db.Timestamptz(6)
+  ipAddress  String?   @map("ip_address") @db.VarChar(64)
+  userAgent  String?   @map("user_agent")
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([familyId])
+  @@map("refresh_tokens")
+}
+
+// ───────────────────────────── Organisasi ─────────────────────────────
+
+model Company {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String   @db.VarChar(255)
+  npwp      String?  @db.VarChar(30)
+  address   String?
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  settings         CompanySettings?
+  departments      Department[]
+  workLocations    WorkLocation[]
+  employees        Employee[]
+  roles            Role[]
+  userRoles        UserRole[]
+  salaryComponents SalaryComponent[]
+
+  @@map("companies")
+}
+
+model CompanySettings {
+  companyId                    String        @id @map("company_id") @db.Uuid
+  riskClassJkk                 String        @default("I") @map("risk_class_jkk") @db.VarChar(5)
+  defaultWorkPattern           WorkPattern   @default(FIVE_DAY) @map("default_work_pattern")
+  prorataMethod                ProrataMethod @default(working_days) @map("prorata_method")
+  roundingMode                 RoundingMode  @default(round_half_up) @map("rounding_mode")
+  minimumWage                  Decimal       @default(0) @map("minimum_wage") @db.Decimal(15, 0)
+  maxDeductionPct              Decimal       @default(0.5) @map("max_deduction_pct") @db.Decimal(6, 5)
+  payrollCutoffDay             Int           @default(31) @map("payroll_cutoff_day")
+  payDay                       Int           @default(25) @map("pay_day")
+  annualLeaveEligibilityMonths Int           @default(12) @map("annual_leave_eligibility_months")
+  annualLeaveProrata           Boolean       @default(false) @map("annual_leave_prorata")
+  attendancePhotoRetentionDays Int           @default(180) @map("attendance_photo_retention_days")
+  updatedAt                    DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@map("company_settings")
+}
+
+model Department {
+  id                 String   @id @default(uuid()) @db.Uuid
+  companyId          String   @map("company_id") @db.Uuid
+  name               String   @db.VarChar(100)
+  parentDepartmentId String?  @map("parent_department_id") @db.Uuid
+  headEmployeeId     String?  @map("head_employee_id") @db.Uuid
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  company   Company      @relation(fields: [companyId], references: [id])
+  parent    Department?  @relation("DepartmentTree", fields: [parentDepartmentId], references: [id])
+  children  Department[] @relation("DepartmentTree")
+  head      Employee?    @relation("DepartmentHead", fields: [headEmployeeId], references: [id])
+  positions Position[]
+  employees Employee[]   @relation("EmployeeDepartment")
+
+  // UNIQUE (company_id, parent_department_id, name) NULLS NOT DISTINCT dibuat di migrasi SQL
+  @@index([companyId])
+  @@map("departments")
+}
+
+model Position {
+  id               String   @id @default(uuid()) @db.Uuid
+  departmentId     String   @map("department_id") @db.Uuid
+  title            String   @db.VarChar(100)
+  level            Int      @default(1)
+  overtimeEligible Boolean  @default(true) @map("overtime_eligible")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  department Department @relation(fields: [departmentId], references: [id])
+  employees  Employee[]
+
+  @@unique([departmentId, title])
+  @@map("positions")
+}
+
+/// Geofence absensi. Fase 1 memakai lat/lng + haversine di aplikasi (tanpa PostGIS);
+/// bisa dimigrasikan ke GEOGRAPHY(POINT) bila nanti butuh query spasial.
+model WorkLocation {
+  id           String   @id @default(uuid()) @db.Uuid
+  companyId    String   @map("company_id") @db.Uuid
+  name         String   @db.VarChar(100)
+  latitude     Decimal  @db.Decimal(9, 6)
+  longitude    Decimal  @db.Decimal(9, 6)
+  radiusMeters Int      @map("radius_meters")
+  timezone     String   @db.VarChar(40)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  company   Company    @relation(fields: [companyId], references: [id])
+  employees Employee[]
+
+  @@unique([companyId, name])
+  @@map("work_locations")
+}
+
+// ───────────────────────────── Employee ─────────────────────────────
+
+model Employee {
+  id                       String           @id @default(uuid()) @db.Uuid
+  userId                   String?          @unique @map("user_id") @db.Uuid
+  companyId                String           @map("company_id") @db.Uuid
+  departmentId             String           @map("department_id") @db.Uuid
+  positionId               String           @map("position_id") @db.Uuid
+  supervisorId             String?          @map("supervisor_id") @db.Uuid
+  workLocationId           String?          @map("work_location_id") @db.Uuid
+  nikEncrypted             String           @map("nik_encrypted")
+  nikHash                  String           @map("nik_hash") @db.VarChar(64)
+  employeeCode             String           @map("employee_code") @db.VarChar(20)
+  fullName                 String           @map("full_name") @db.VarChar(255)
+  gender                   Gender
+  religion                 String?          @db.VarChar(30)
+  birthDate                DateTime         @map("birth_date") @db.Date
+  joinDate                 DateTime         @map("join_date") @db.Date
+  probationEndDate         DateTime?        @map("probation_end_date") @db.Date
+  contractEndDate          DateTime?        @map("contract_end_date") @db.Date
+  resignDate               DateTime?        @map("resign_date") @db.Date
+  employmentStatus         EmploymentStatus @default(active) @map("employment_status")
+  contractType             ContractType     @map("contract_type")
+  workPattern              WorkPattern?     @map("work_pattern")
+  overtimeEligible         Boolean?         @map("overtime_eligible")
+  ptkpStatus               String           @map("ptkp_status") @db.VarChar(5)
+  baseSalaryEncrypted      String           @map("base_salary_encrypted")
+  bankAccountEncrypted     String?          @map("bank_account_encrypted")
+  bankName                 String?          @map("bank_name") @db.VarChar(100)
+  npwpEncrypted            String?          @map("npwp_encrypted")
+  bpjsKesehatanNumber      String?          @map("bpjs_kesehatan_number") @db.VarChar(30)
+  bpjsTkNumber             String?          @map("bpjs_tk_number") @db.VarChar(30)
+  bpjsExtraFamilyMembers   Int              @default(0) @map("bpjs_extra_family_members")
+  createdAt                DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user             User?                     @relation(fields: [userId], references: [id])
+  company          Company                   @relation(fields: [companyId], references: [id])
+  department       Department                @relation("EmployeeDepartment", fields: [departmentId], references: [id])
+  position         Position                  @relation(fields: [positionId], references: [id])
+  supervisor       Employee?                 @relation("Supervision", fields: [supervisorId], references: [id])
+  subordinates     Employee[]                @relation("Supervision")
+  workLocation     WorkLocation?             @relation(fields: [workLocationId], references: [id])
+  headOf           Department[]              @relation("DepartmentHead")
+  history          EmployeeHistory[]
+  salaryComponents EmployeeSalaryComponent[]
+
+  @@unique([companyId, nikHash])
+  @@unique([companyId, employeeCode])
+  @@index([companyId, employmentStatus])
+  @@index([supervisorId])
+  @@map("employees")
+}
+
+model EmployeeHistory {
+  id            String   @id @default(uuid()) @db.Uuid
+  employeeId    String   @map("employee_id") @db.Uuid
+  fieldChanged  String   @map("field_changed") @db.VarChar(50)
+  oldValue      String?  @map("old_value") // dienkripsi untuk field sensitif
+  newValue      String?  @map("new_value")
+  isEncrypted   Boolean  @default(false) @map("is_encrypted")
+  effectiveDate DateTime @map("effective_date") @db.Date
+  reason        String?
+  changedBy     String?  @map("changed_by") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  employee Employee @relation(fields: [employeeId], references: [id])
+
+  @@index([employeeId, fieldChanged, effectiveDate])
+  @@map("employee_history")
+}
+
+// ───────────────────────────── Komponen Gaji ─────────────────────────────
+
+model SalaryComponent {
+  id          String                     @id @default(uuid()) @db.Uuid
+  companyId   String                     @map("company_id") @db.Uuid
+  code        String                     @db.VarChar(30)
+  name        String                     @db.VarChar(100)
+  type        SalaryComponentType
+  isFixed     Boolean                    @map("is_fixed")
+  calculation SalaryComponentCalculation @default(fixed_amount)
+  isTaxable   Boolean                    @default(true) @map("is_taxable")
+  isActive    Boolean                    @default(true) @map("is_active")
+  createdAt   DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime                   @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  company   Company                   @relation(fields: [companyId], references: [id])
+  assigned  EmployeeSalaryComponent[]
+
+  @@unique([companyId, code])
+  @@map("salary_components")
+}
+
+model EmployeeSalaryComponent {
+  id              String    @id @default(uuid()) @db.Uuid
+  employeeId      String    @map("employee_id") @db.Uuid
+  componentId     String    @map("component_id") @db.Uuid
+  amountEncrypted String    @map("amount_encrypted")
+  effectiveFrom   DateTime  @map("effective_from") @db.Date
+  effectiveTo     DateTime? @map("effective_to") @db.Date
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  employee  Employee        @relation(fields: [employeeId], references: [id])
+  component SalaryComponent @relation(fields: [componentId], references: [id])
+
+  @@index([employeeId, componentId, effectiveFrom])
+  @@map("employee_salary_components")
+}
+
+// ───────────────────────────── Audit ─────────────────────────────
+
+/// Append-only (trigger di migrasi menolak UPDATE/DELETE/TRUNCATE).
+/// row_hash = sha256(prev_hash || isi baris) → rantai hash untuk deteksi manipulasi.
+model AuditLog {
+  id         BigInt      @id @default(autoincrement())
+  companyId  String?     @map("company_id") @db.Uuid
+  userId     String?     @map("user_id") @db.Uuid
+  tableName  String      @map("table_name") @db.VarChar(100)
+  recordId   String      @map("record_id") @db.VarChar(64)
+  action     AuditAction
+  oldValue   Json?       @map("old_value")
+  newValue   Json?       @map("new_value")
+  ipAddress  String?     @map("ip_address") @db.VarChar(64)
+  userAgent  String?     @map("user_agent")
+  prevHash   String?     @map("prev_hash") @db.VarChar(64)
+  rowHash    String      @map("row_hash") @db.VarChar(64)
+  createdAt  DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([tableName, recordId])
+  @@index([companyId, createdAt])
+  @@map("audit_logs")
+}

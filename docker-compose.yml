@@ -1,0 +1,13 @@
+services:
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: hris
+      POSTGRES_PASSWORD: hris_dev_password
+      POSTGRES_DB: hris
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql
+volumes:
+  pgdata:

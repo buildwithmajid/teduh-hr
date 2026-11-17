@@ -1,0 +1,3 @@
+# Kunci line ending ke LF di semua platform.
+# Penting untuk migrasi Prisma: checksum migration.sql berubah jika CRLF/LF berganti.
+* text=auto eol=lf

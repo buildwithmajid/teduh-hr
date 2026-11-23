@@ -3,7 +3,7 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { FormEvent, useState } from 'react';
 import { EmployeeSummaryList, SalaryComponentsTable, SensitiveList } from '@/components/employee-panels';
-import { Alert, Button, Card, CardHeader, Field, Input, PageHeader, Spinner, useToast } from '@/components/ui';
+import { Alert, Avatar, Button, Card, CardHeader, Field, Input, PageHeader, Spinner, useToast } from '@/components/ui';
 import { api, errorMessage } from '@/lib/api';
 import { useAuth, useMe } from '@/lib/auth';
 import type { MyProfile } from '@/lib/types';
@@ -29,7 +29,15 @@ export default function MyProfilePage() {
         ) : (
           <>
             <Card>
-              <CardHeader title={profile.data.fullName} description={`${profile.data.position.title} · ${profile.data.department.name}`} />
+              <div className="flex items-center gap-3.5 border-b border-line px-5 py-4">
+                <Avatar name={profile.data.fullName} size="lg" />
+                <div>
+                  <h2 className="text-base font-semibold text-ink">{profile.data.fullName}</h2>
+                  <p className="text-xs text-ink-muted">
+                    {profile.data.position.title} · {profile.data.department.name}
+                  </p>
+                </div>
+              </div>
               <div className="p-5">
                 <EmployeeSummaryList e={profile.data} />
               </div>

@@ -1,8 +1,10 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
+import Image from 'next/image';
 import { FormEvent } from 'react';
 import { RequirePermission } from '@/components/app-shell';
+import { BrandMark } from '@/components/brand-mark';
 import { Alert, Button, Card, CardHeader, Checkbox, Field, Input, PageHeader, Select, Spinner, Textarea } from '@/components/ui';
 import { api, errorMessage } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
@@ -33,8 +35,26 @@ function CompanyCard({ editable }: { editable: boolean }) {
   });
 
   return (
-    <Card>
-      <CardHeader title="Profil perusahaan" description={editable ? undefined : 'Hanya Super Admin yang bisa mengubah profil perusahaan.'} />
+    <Card className="overflow-hidden">
+      <div className="relative h-28 bg-[#1B1917]">
+        <Image
+          src="/images/studio-interior.png"
+          alt=""
+          fill
+          sizes="(min-width: 1024px) 1152px, 100vw"
+          className="object-cover object-[50%_45%]"
+        />
+        <div aria-hidden className="absolute inset-0 bg-gradient-to-r from-[#161412]/90 via-[#161412]/55 to-transparent" />
+        <div className="relative z-10 flex h-full items-end gap-3 px-5 pb-4">
+          <BrandMark />
+          <div>
+            <h2 className="text-base font-semibold leading-tight text-white">{company.data?.name ?? 'Profil perusahaan'}</h2>
+            <p className="text-xs text-stone-200/85">
+              {editable ? 'Identitas resmi untuk dokumen & pemotongan PPh 21.' : 'Hanya Super Admin yang bisa mengubah profil perusahaan.'}
+            </p>
+          </div>
+        </div>
+      </div>
       {company.isPending ? (
         <Spinner />
       ) : company.isError ? (
@@ -64,14 +84,14 @@ function CompanyCard({ editable }: { editable: boolean }) {
               {(id) => <Input id={id} name="name" required minLength={2} maxLength={255} defaultValue={company.data.name} />}
             </Field>
             <Field label="NPWP perusahaan" hint="Pemotong PPh 21">
-              {(id) => <Input id={id} name="npwp" maxLength={30} defaultValue={company.data.npwp ?? ''} />}
+              {(id) => <Input id={id} name="npwp" maxLength={30} className="font-mono" defaultValue={company.data.npwp ?? ''} />}
             </Field>
             <Field label="Alamat" className="sm:col-span-2">
               {(id) => <Textarea id={id} name="address" maxLength={1000} defaultValue={company.data.address ?? ''} />}
             </Field>
           </fieldset>
           {editable && (
-            <div className="sm:col-span-2">
+            <div className="flex justify-end border-t border-line pt-4 sm:col-span-2">
               <Button type="submit" loading={save.isPending}>
                 Simpan profil
               </Button>
@@ -119,7 +139,7 @@ function PolicyCard() {
       {save.isError && <Alert>{errorMessage(save.error)}</Alert>}
 
       <Card>
-        <CardHeader title="Payroll" description="Dipakai payroll engine (Fase 3). Perubahan tercatat di audit log." />
+        <CardHeader title="Kebijakan payroll" description="Dipakai payroll engine. Setiap perubahan tercatat di audit log." />
         <div className="grid gap-4 p-5 sm:grid-cols-2 lg:grid-cols-3">
           <Field label="Kelas risiko JKK" hint="Menentukan tarif iuran JKK (0,24%–1,74%)">
             {(id) => (
@@ -158,18 +178,27 @@ function PolicyCard() {
             )}
           </Field>
           <Field label="UMK/UMP (Rp)" hint="Batas bawah dasar iuran BPJS Kesehatan">
-            {(id) => <Input id={id} name="minimumWage" type="number" min={0} step={1} defaultValue={Number(s.minimumWage)} />}
+            {(id) => <Input id={id} name="minimumWage" type="number" min={0} step={1} className="font-mono" defaultValue={Number(s.minimumWage)} />}
           </Field>
           <Field label="Batas total potongan (%)" hint="Dari upah yang dibayarkan (PP 36/2021)">
             {(id) => (
-              <Input id={id} name="maxDeductionPct" type="number" min={0} max={100} step="0.01" defaultValue={Number(s.maxDeductionPct) * 100} />
+              <Input
+                id={id}
+                name="maxDeductionPct"
+                type="number"
+                min={0}
+                max={100}
+                step="0.01"
+                className="font-mono"
+                defaultValue={Number(s.maxDeductionPct) * 100}
+              />
             )}
           </Field>
           <Field label="Tanggal cut-off absensi" hint="31 = akhir bulan">
-            {(id) => <Input id={id} name="payrollCutoffDay" type="number" min={1} max={31} defaultValue={s.payrollCutoffDay} />}
+            {(id) => <Input id={id} name="payrollCutoffDay" type="number" min={1} max={31} className="font-mono" defaultValue={s.payrollCutoffDay} />}
           </Field>
           <Field label="Tanggal gajian">
-            {(id) => <Input id={id} name="payDay" type="number" min={1} max={31} defaultValue={s.payDay} />}
+            {(id) => <Input id={id} name="payDay" type="number" min={1} max={31} className="font-mono" defaultValue={s.payDay} />}
           </Field>
         </div>
       </Card>
@@ -179,15 +208,31 @@ function PolicyCard() {
         <div className="grid gap-4 p-5 sm:grid-cols-2 lg:grid-cols-3">
           <Field label="Masa kerja minimal cuti tahunan (bulan)" hint="Default UU Ketenagakerjaan: 12 bulan">
             {(id) => (
-              <Input id={id} name="annualLeaveEligibilityMonths" type="number" min={0} max={24} defaultValue={s.annualLeaveEligibilityMonths} />
+              <Input
+                id={id}
+                name="annualLeaveEligibilityMonths"
+                type="number"
+                min={0}
+                max={24}
+                className="font-mono"
+                defaultValue={s.annualLeaveEligibilityMonths}
+              />
             )}
           </Field>
           <Field label="Retensi foto absensi (hari)" hint="Foto dihapus otomatis setelah masa ini (UU PDP)">
             {(id) => (
-              <Input id={id} name="attendancePhotoRetentionDays" type="number" min={1} max={3650} defaultValue={s.attendancePhotoRetentionDays} />
+              <Input
+                id={id}
+                name="attendancePhotoRetentionDays"
+                type="number"
+                min={1}
+                max={3650}
+                className="font-mono"
+                defaultValue={s.attendancePhotoRetentionDays}
+              />
             )}
           </Field>
-          <div className="flex items-end">
+          <div className="flex items-end pb-1">
             <Checkbox
               name="annualLeaveProrata"
               defaultChecked={s.annualLeaveProrata}
@@ -196,13 +241,12 @@ function PolicyCard() {
             />
           </div>
         </div>
+        <div className="flex justify-end border-t border-line px-5 py-3.5">
+          <Button type="submit" loading={save.isPending}>
+            Simpan kebijakan
+          </Button>
+        </div>
       </Card>
-
-      <div>
-        <Button type="submit" loading={save.isPending}>
-          Simpan pengaturan
-        </Button>
-      </div>
     </form>
   );
 }

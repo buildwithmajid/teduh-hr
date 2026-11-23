@@ -1,16 +1,18 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { Plus } from 'lucide-react';
+import { ChevronDown, Plus } from 'lucide-react';
 import { FormEvent, useState } from 'react';
 import { RequirePermission } from '@/components/app-shell';
 import {
   Alert,
+  Avatar,
   Badge,
   Button,
   Card,
   CardHeader,
   Checkbox,
+  ConfirmModal,
   EmptyState,
   Field,
   Input,
@@ -18,8 +20,8 @@ import {
   ModalActions,
   PageHeader,
   Select,
-  Spinner,
   Table,
+  TableSkeleton,
   Td,
   Th,
 } from '@/components/ui';
@@ -51,14 +53,21 @@ function Users() {
   const roles = useRoles();
   const [creating, setCreating] = useState(false);
   const [editingRoles, setEditingRoles] = useState<UserRow | null>(null);
+  const [confirming, setConfirming] = useState<
+    | null
+    | { kind: 'resetMfa'; user: UserRow }
+    | { kind: 'deactivate'; user: UserRow }
+  >(null);
+
   const invalidate = [qk.users];
   const setActive = useApiMutation(
     ({ id, isActive }: { id: string; isActive: boolean }) => api.patch(`/users/${id}/status`, { isActive }),
-    { invalidate, success: 'Status akun diperbarui' },
+    { invalidate, success: 'Status akun diperbarui', onDone: () => setConfirming(null) },
   );
   const resetMfa = useApiMutation((id: string) => api.post(`/users/${id}/reset-mfa`), {
     invalidate,
     success: 'MFA direset; user wajib enrol ulang saat login',
+    onDone: () => setConfirming(null),
   });
   const actionError = setActive.error ?? resetMfa.error;
 
@@ -77,7 +86,7 @@ function Users() {
         {actionError && <Alert>{errorMessage(actionError)}</Alert>}
         <Card>
           {users.isPending ? (
-            <Spinner />
+            <TableSkeleton rows={5} cols={6} />
           ) : users.isError ? (
             <div className="p-4">
               <Alert>{errorMessage(users.error)}</Alert>
@@ -86,7 +95,7 @@ function Users() {
             <EmptyState title="Belum ada user" />
           ) : (
             <Table>
-              <thead className="bg-slate-50">
+              <thead>
                 <tr>
                   <Th>Akun</Th>
                   <Th>Role</Th>
@@ -96,14 +105,23 @@ function Users() {
                   <Th />
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-line">
                 {users.data.map((u) => {
                   const self = u.id === me.id;
                   return (
-                    <tr key={u.id}>
+                    <tr key={u.id} className="hover:bg-canvas/60">
                       <Td>
-                        <span className="font-medium text-slate-900">{u.email}</span>
-                        <div className="text-xs text-slate-500">{u.employee ? `${u.employee.fullName} · ${u.employee.employeeCode}` : 'Tidak terhubung ke karyawan'}</div>
+                        <div className="flex items-center gap-2.5">
+                          <Avatar name={u.employee?.fullName ?? u.email} size="sm" />
+                          <div className="min-w-0">
+                            <span className="font-medium text-ink">{u.email}</span>
+                            <div className="text-xs text-ink-muted">
+                              {u.employee
+                                ? `${u.employee.fullName} · ${u.employee.employeeCode}`
+                                : 'Tidak terhubung ke karyawan'}
+                            </div>
+                          </div>
+                        </div>
                       </Td>
                       <Td>
                         <div className="flex flex-wrap gap-1">
@@ -114,23 +132,19 @@ function Users() {
                           ))}
                         </div>
                       </Td>
-                      <Td>{u.mfaEnabled ? <Badge tone="green">Aktif</Badge> : <Badge>Belum</Badge>}</Td>
-                      <Td className="whitespace-nowrap text-xs">{formatDateTime(u.lastLoginAt)}</Td>
-                      <Td>{u.isActive ? <Badge tone="green">Aktif</Badge> : <Badge tone="red">Nonaktif</Badge>}</Td>
+                      <Td>{u.mfaEnabled ? <Badge tone="green" dot>Aktif</Badge> : <Badge>Belum</Badge>}</Td>
+                      <Td className="whitespace-nowrap font-mono text-xs text-ink-muted">{formatDateTime(u.lastLoginAt)}</Td>
+                      <Td>{u.isActive ? <Badge tone="green" dot>Aktif</Badge> : <Badge tone="red" dot>Nonaktif</Badge>}</Td>
                       <Td className="whitespace-nowrap text-right">
                         {self ? (
-                          <span className="text-xs text-slate-400">Akun Anda</span>
+                          <span className="text-xs text-ink-subtle">Akun Anda</span>
                         ) : (
                           <div className="flex justify-end gap-1">
                             <Button size="sm" variant="ghost" onClick={() => setEditingRoles(u)}>
                               Role
                             </Button>
                             {u.mfaEnabled && (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => confirm(`Reset MFA ${u.email}? Semua sesinya akan keluar.`) && resetMfa.mutate(u.id)}
-                              >
+                              <Button size="sm" variant="ghost" onClick={() => setConfirming({ kind: 'resetMfa', user: u })}>
                                 Reset MFA
                               </Button>
                             )}
@@ -138,8 +152,9 @@ function Users() {
                               size="sm"
                               variant="ghost"
                               onClick={() =>
-                                (u.isActive ? confirm(`Nonaktifkan ${u.email}? Semua sesinya akan keluar.`) : true) &&
-                                setActive.mutate({ id: u.id, isActive: !u.isActive })
+                                u.isActive
+                                  ? setConfirming({ kind: 'deactivate', user: u })
+                                  : setActive.mutate({ id: u.id, isActive: true })
                               }
                             >
                               {u.isActive ? 'Nonaktifkan' : 'Aktifkan'}
@@ -160,6 +175,24 @@ function Users() {
 
       {creating && <CreateUserModal roles={roles.data ?? []} onClose={() => setCreating(false)} />}
       {editingRoles && <EditRolesModal user={editingRoles} roles={roles.data ?? []} onClose={() => setEditingRoles(null)} />}
+
+      <ConfirmModal
+        open={confirming !== null}
+        onClose={() => setConfirming(null)}
+        loading={resetMfa.isPending || setActive.isPending}
+        title={confirming?.kind === 'resetMfa' ? 'Reset MFA akun' : 'Nonaktifkan akun'}
+        description={
+          confirming?.kind === 'resetMfa'
+            ? `Reset verifikasi dua langkah untuk ${confirming.user.email}? Semua sesi aktif akan keluar dan user wajib enrol ulang.`
+            : `Nonaktifkan akun ${confirming?.user.email ?? ''}? Semua sesi aktifnya akan segera dicabut.`
+        }
+        confirmLabel={confirming?.kind === 'resetMfa' ? 'Reset MFA' : 'Nonaktifkan'}
+        onConfirm={() => {
+          if (!confirming) return;
+          if (confirming.kind === 'resetMfa') resetMfa.mutate(confirming.user.id);
+          else setActive.mutate({ id: confirming.user.id, isActive: false });
+        }}
+      />
     </>
   );
 }
@@ -167,8 +200,8 @@ function Users() {
 function RoleCheckboxes({ roles, selected }: { roles: Role[]; selected?: string[] }) {
   const assignable = useAssignable();
   return (
-    <fieldset className="space-y-2">
-      <legend className="mb-1 text-sm font-medium text-slate-700">Role</legend>
+    <fieldset className="space-y-2.5">
+      <legend className="mb-1.5 text-[13px] font-medium text-ink">Role</legend>
       {roles.map((r) => (
         <Checkbox
           key={r.id}
@@ -274,20 +307,23 @@ function EditRolesModal({ user, roles, onClose }: { user: UserRow; roles: Role[]
 function RolesReference({ roles }: { roles: Role[] }) {
   return (
     <Card>
-      <CardHeader title="Daftar role" description="Hak akses tiap role bawaan." />
-      <div className="divide-y divide-slate-100">
+      <CardHeader title="Daftar role" description="Hak akses tiap role bawaan sistem." />
+      <div className="divide-y divide-line">
         {roles.map((r) => (
-          <details key={r.id} className="group px-5 py-3">
+          <details key={r.id} className="group px-5 py-3.5">
             <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm">
               <span>
-                <span className="font-medium text-slate-900">{LABELS.role[r.name] ?? r.name}</span>
-                <span className="ml-2 text-slate-500">{r.description}</span>
+                <span className="font-medium text-ink">{LABELS.role[r.name] ?? r.name}</span>
+                <span className="ml-2 text-xs text-ink-muted">{r.description}</span>
               </span>
-              <span className="text-xs text-slate-500">{r.permissions.length} permission</span>
+              <span className="flex items-center gap-1.5 font-mono text-xs text-ink-subtle">
+                {r.permissions.length} permission
+                <ChevronDown className="size-3.5 transition-transform group-open:rotate-180" aria-hidden />
+              </span>
             </summary>
-            <div className="mt-2 flex flex-wrap gap-1">
+            <div className="mt-3 flex flex-wrap gap-1.5">
               {r.permissions.map((p) => (
-                <code key={p} className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-700">
+                <code key={p} className="rounded border border-line bg-canvas px-2 py-0.5 font-mono text-[11px] text-ink-muted">
                   {p}
                 </code>
               ))}

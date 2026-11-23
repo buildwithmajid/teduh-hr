@@ -44,12 +44,12 @@ export function useWorkLocations() {
 }
 
 /** Karyawan aktif untuk pilihan atasan / kepala departemen (maks 100). */
-export function useActiveEmployees() {
+export function useActiveEmployees(enabled = true) {
   const { can } = useAuth();
   return useQuery({
     queryKey: [...qk.employees, 'active-options'],
     queryFn: () => api.get<Paged<EmployeeSummary>>('/employees?status=active&pageSize=100'),
-    enabled: can('employee.view'),
+    enabled: enabled && can('employee.view'),
     select: (d) => d.items,
   });
 }

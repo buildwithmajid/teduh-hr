@@ -1,25 +1,121 @@
 @import 'tailwindcss';
 
 @theme {
-  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-jakarta), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains), ui-monospace, SFMono-Regular, Menlo, monospace;
 
-  --color-brand-50: #eef6f5;
-  --color-brand-100: #d5ebe8;
-  --color-brand-200: #acd7d1;
-  --color-brand-500: #1f8a7d;
-  --color-brand-600: #187266;
-  --color-brand-700: #145c53;
-  --color-brand-900: #0b3430;
+  /* Warm Paper & Linen Neutrals */
+  --color-canvas: #f7f6f2;
+  --color-rail: #efece6;
+  --color-surface: #ffffff;
+  --color-line: #e4e0d8;
+  --color-line-strong: #d4cfc5;
+  --color-ink: #181715;
+  --color-ink-muted: #656058;
+  --color-ink-subtle: #8c867d;
+
+  /* Terracotta Brand Scale */
+  --color-brand-50: #fdf3ef;
+  --color-brand-100: #fae3d9;
+  --color-brand-200: #f3c4b0;
+  --color-brand-300: #e79e7f;
+  --color-brand-500: #c85028;
+  --color-brand-600: #b4431f;
+  --color-brand-700: #933517;
+  --color-brand-800: #752a12;
+  --color-brand-900: #4a1a0b;
 }
 
 @layer base {
   html {
     -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    color-scheme: light;
   }
+
   body {
-    @apply bg-slate-50 text-slate-900;
+    background-color: var(--color-canvas);
+    color: var(--color-ink);
+    caret-color: var(--color-brand-600);
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
   }
+
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+
+  a {
+    text-underline-offset: 3px;
+  }
+
+  ::selection {
+    background-color: var(--color-brand-100);
+    color: var(--color-brand-900);
+  }
+
   :focus-visible {
-    @apply outline-2 outline-offset-2 outline-brand-500;
+    outline: 2px solid var(--color-brand-600);
+    outline-offset: 2px;
+  }
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Ultra-subtle architectural drafting grid on the warm paper canvas (~3% contrast) */
+.bg-architectural {
+  background-color: var(--color-canvas);
+  background-image:
+    linear-gradient(to right, rgba(24, 23, 21, 0.028) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(24, 23, 21, 0.028) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+dialog[open] {
+  animation: modal-in 160ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+dialog::backdrop {
+  background: rgba(24, 23, 21, 0.42);
+  backdrop-filter: blur(2px);
+}
+
+.animate-toast-in {
+  animation: toast-in 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  dialog[open],
+  .animate-toast-in {
+    animation: none;
   }
 }

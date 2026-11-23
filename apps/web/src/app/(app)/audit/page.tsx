@@ -4,7 +4,7 @@ import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { ShieldCheck } from 'lucide-react';
 import { Fragment, useState } from 'react';
 import { RequirePermission } from '@/components/app-shell';
-import { Alert, Badge, Button, Card, EmptyState, PageHeader, Pagination, Select, Spinner, Table, Td, Th } from '@/components/ui';
+import { Alert, Badge, Button, Card, EmptyState, PageHeader, Pagination, Select, Table, TableSkeleton, Td, Th } from '@/components/ui';
 import { api, errorMessage } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { formatDateTime, LABELS } from '@/lib/format';
@@ -48,8 +48,7 @@ function diff(oldValue: Record<string, unknown> | null, newValue: Record<string,
   const show = (v: unknown) => {
     if (v === undefined) return '—';
     const s = typeof v === 'string' ? v : JSON.stringify(v);
-    // Ciphertext berformat versi:iv:tag:data
-    if (typeof v === 'string' && /^v\d+:[^:]+:[^:]+:[^:]+$/.test(v)) return '🔒 terenkripsi';
+    if (typeof v === 'string' && /^v\d+:[^:]+:[^:]+:[^:]+$/.test(v)) return '[terenkripsi]';
     return s.length > 80 ? `${s.slice(0, 80)}…` : s;
   };
   return [...keys]
@@ -85,7 +84,7 @@ function AuditLogs() {
     <>
       <PageHeader
         title="Audit log"
-        description="Catatan siapa mengubah atau melihat data apa, kapan. Tidak bisa diubah atau dihapus."
+        description="Catatan permanen setiap perubahan dan akses data sensitif. Dilindungi rantai hash SHA-256."
         actions={
           can('audit.verify') && (
             <Button variant="secondary" loading={verify.isFetching} onClick={() => void verify.refetch()}>
@@ -99,7 +98,9 @@ function AuditLogs() {
           {verify.data.valid ? (
             <Alert tone="green">Rantai hash utuh — {verify.data.checked} catatan terverifikasi tidak dimanipulasi.</Alert>
           ) : (
-            <Alert>Rantai hash rusak mulai catatan #{verify.data.brokenAtId}. Ada data audit yang diubah atau dihapus di luar aplikasi.</Alert>
+            <Alert>
+              Rantai hash rusak mulai catatan #{verify.data.brokenAtId}. Ada data audit yang diubah atau dihapus di luar aplikasi.
+            </Alert>
           )}
         </div>
       )}
@@ -110,62 +111,66 @@ function AuditLogs() {
       )}
 
       <Card>
-        <div className="flex flex-wrap gap-3 border-b border-slate-100 p-4">
+        <div className="flex flex-wrap items-center gap-3 border-b border-line p-4">
           <Select
-            aria-label="Filter tabel"
-            className="w-auto"
+            aria-label="Filter kategori data"
+            className="w-auto min-w-52"
             value={tableName}
             onChange={(e) => {
               setTableName(e.target.value);
               setPage(1);
             }}
           >
-            <option value="">Semua data</option>
+            <option value="">Semua kategori data</option>
             {TABLES.map((t) => (
               <option key={t} value={t}>
-                {t}
+                {LABELS.auditTable[t] ?? t}
               </option>
             ))}
           </Select>
         </div>
         {logs.isPending ? (
-          <Spinner />
+          <TableSkeleton rows={6} cols={6} />
         ) : logs.isError ? (
           <div className="p-4">
             <Alert>{errorMessage(logs.error)}</Alert>
           </div>
         ) : logs.data.items.length === 0 ? (
-          <EmptyState title="Belum ada catatan" />
+          <EmptyState title="Belum ada catatan audit" />
         ) : (
           <>
             <Table>
-              <thead className="bg-slate-50">
+              <thead>
                 <tr>
                   <Th>Waktu</Th>
                   <Th>Pelaku</Th>
                   <Th>Aksi</Th>
-                  <Th>Data</Th>
+                  <Th>Objek data</Th>
                   <Th>IP</Th>
                   <Th />
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-line">
                 {logs.data.items.map((l) => {
                   const changes = diff(l.oldValue, l.newValue);
                   const open = expanded === l.id;
                   return (
                     <Fragment key={l.id}>
-                      <tr>
-                        <Td className="whitespace-nowrap text-xs">{formatDateTime(l.createdAt)}</Td>
-                        <Td className="text-xs">{l.userId ? (emailOf.get(l.userId) ?? `${l.userId.slice(0, 8)}…`) : 'Sistem'}</Td>
-                        <Td>
-                          <Badge tone={actionTone[l.action]}>{LABELS.auditAction[l.action]}</Badge>
+                      <tr className="hover:bg-canvas/60">
+                        <Td className="whitespace-nowrap font-mono text-xs text-ink-muted">{formatDateTime(l.createdAt)}</Td>
+                        <Td className="text-xs text-ink">
+                          {l.userId ? (emailOf.get(l.userId) ?? `${l.userId.slice(0, 8)}…`) : 'Sistem'}
                         </Td>
                         <Td>
-                          <code className="text-xs">{l.tableName}</code>
-                          <div className="font-mono text-xs text-slate-400">{l.recordId.slice(0, 8)}…</div>
+                          <Badge tone={actionTone[l.action]} dot>
+                            {LABELS.auditAction[l.action]}
+                          </Badge>
                         </Td>
-                        <Td className="font-mono text-xs">{l.ipAddress ?? '—'}</Td>
+                        <Td>
+                          <span className="text-sm font-medium text-ink">{LABELS.auditTable[l.tableName] ?? l.tableName}</span>
+                          <div className="font-mono text-[11px] text-ink-subtle">{l.recordId.slice(0, 8)}…</div>
+                        </Td>
+                        <Td className="font-mono text-xs text-ink-muted">{l.ipAddress ?? '—'}</Td>
                         <Td className="text-right">
                           {changes.length > 0 && (
                             <Button size="sm" variant="ghost" onClick={() => setExpanded(open ? null : l.id)} aria-expanded={open}>
@@ -175,22 +180,22 @@ function AuditLogs() {
                         </Td>
                       </tr>
                       {open && (
-                        <tr className="bg-slate-50/70">
-                          <td colSpan={6} className="px-4 py-3">
+                        <tr className="bg-canvas/80">
+                          <td colSpan={6} className="px-5 py-3.5">
                             <table className="w-full text-xs">
                               <thead>
-                                <tr className="text-left text-slate-500">
-                                  <th className="py-1 pr-4 font-medium">Field</th>
-                                  <th className="py-1 pr-4 font-medium">Sebelum</th>
-                                  <th className="py-1 font-medium">Sesudah</th>
+                                <tr className="border-b border-line text-left text-[11px] uppercase tracking-wider text-ink-subtle">
+                                  <th className="py-1.5 pr-4 font-semibold">Field</th>
+                                  <th className="py-1.5 pr-4 font-semibold">Sebelum</th>
+                                  <th className="py-1.5 font-semibold">Sesudah</th>
                                 </tr>
                               </thead>
-                              <tbody>
+                              <tbody className="divide-y divide-line/60">
                                 {changes.map((c) => (
                                   <tr key={c.key} className="align-top">
-                                    <td className="py-1 pr-4 font-mono text-slate-700">{c.key}</td>
-                                    <td className="break-all py-1 pr-4 text-red-700">{c.before ?? '—'}</td>
-                                    <td className="break-all py-1 text-emerald-700">{c.after ?? '—'}</td>
+                                    <td className="py-1.5 pr-4 font-mono text-ink">{c.key}</td>
+                                    <td className="break-all py-1.5 pr-4 font-mono text-red-700">{c.before ?? '—'}</td>
+                                    <td className="break-all py-1.5 font-mono text-emerald-800">{c.after ?? '—'}</td>
                                   </tr>
                                 ))}
                               </tbody>

@@ -1,6 +1,6 @@
 /**
  * Katalog permission & role bawaan. Dipakai oleh seed dan menjadi dokumentasi
- * hak akses Fase 1. Role bawaan (company_id NULL) di-sync dari daftar ini.
+ * hak akses Fase 1 & Fase 2. Role bawaan (company_id NULL) di-sync dari daftar ini.
  */
 export const PERMISSIONS = {
   'company.create': 'Membuat perusahaan baru (platform)',
@@ -21,6 +21,18 @@ export const PERMISSIONS = {
   'user.manage': 'Mengelola akun user & role',
   'audit.view': 'Melihat audit log perusahaan',
   'audit.verify': 'Memverifikasi rantai hash audit log (lintas perusahaan)',
+  // Fase 2 — Absensi, Cuti, Lembur, Approval
+  'shift.manage': 'Mengelola master shift & jadwal shift karyawan',
+  'holiday.manage': 'Mengelola kalender hari libur & cuti bersama',
+  'attendance.view': 'Melihat rekap absensi seluruh karyawan',
+  'attendance.view_team': 'Melihat kehadiran bawahan langsung',
+  'attendance.manage': 'Mengelola & mengoreksi absensi karyawan',
+  'leave.view': 'Melihat pengajuan & saldo cuti seluruh karyawan',
+  'leave.manage': 'Mengelola jenis cuti & kebijakan cuti',
+  'leave.adjust_balance': 'Menyesuaikan saldo cuti karyawan secara manual',
+  'overtime.view': 'Melihat pengajuan lembur seluruh karyawan',
+  'overtime.manage': 'Mengelola data lembur karyawan',
+  'approval.manage': 'Mengelola konfigurasi alur persetujuan (workflow)',
 } as const;
 
 export type PermissionCode = keyof typeof PERMISSIONS;
@@ -43,7 +55,7 @@ export const SYSTEM_ROLES: SystemRoleDefinition[] = [
   },
   {
     name: 'hr_admin',
-    description: 'Kelola data karyawan, organisasi, dan kebijakan',
+    description: 'Kelola data karyawan, organisasi, absensi, cuti, dan kebijakan',
     requiresMfa: true,
     permissions: ALL.filter((p) => !['company.create', 'company.manage', 'audit.verify'].includes(p)),
   },
@@ -57,6 +69,9 @@ export const SYSTEM_ROLES: SystemRoleDefinition[] = [
       'employee.view',
       'employee.view_sensitive',
       'salary.view',
+      'attendance.view',
+      'leave.view',
+      'overtime.view',
       'audit.view',
     ],
   },
@@ -64,7 +79,7 @@ export const SYSTEM_ROLES: SystemRoleDefinition[] = [
     name: 'manager',
     description: 'Atasan langsung: lihat & approve tim',
     requiresMfa: false,
-    permissions: ['department.view', 'location.view', 'employee.view_team'],
+    permissions: ['department.view', 'location.view', 'employee.view_team', 'attendance.view_team'],
   },
   {
     name: 'staff',

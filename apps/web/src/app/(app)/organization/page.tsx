@@ -5,11 +5,13 @@ import { FormEvent, useState } from 'react';
 import { RequirePermission } from '@/components/app-shell';
 import {
   Alert,
+  Avatar,
   Badge,
   Button,
   Card,
   CardHeader,
   Checkbox,
+  ConfirmModal,
   EmptyState,
   Field,
   Input,
@@ -17,8 +19,8 @@ import {
   ModalActions,
   PageHeader,
   Select,
-  Spinner,
   Table,
+  TableSkeleton,
   Tabs,
   Td,
   Th,
@@ -83,7 +85,12 @@ function DepartmentsTab() {
   const { can } = useAuth();
   const departments = useDepartments();
   const [editing, setEditing] = useState<Department | 'new' | null>(null);
-  const del = useApiMutation((id: string) => api.delete(`/departments/${id}`), { invalidate: [qk.departments], success: 'Departemen dihapus' });
+  const [deleting, setDeleting] = useState<Department | null>(null);
+  const del = useApiMutation((id: string) => api.delete(`/departments/${id}`), {
+    invalidate: [qk.departments],
+    success: 'Departemen dihapus',
+    onDone: () => setDeleting(null),
+  });
   const manage = can('department.manage');
 
   return (
@@ -104,7 +111,7 @@ function DepartmentsTab() {
         </div>
       )}
       {departments.isPending ? (
-        <Spinner />
+        <TableSkeleton rows={5} cols={4} />
       ) : departments.isError ? (
         <div className="p-5">
           <Alert>{errorMessage(departments.error)}</Alert>
@@ -113,31 +120,40 @@ function DepartmentsTab() {
         <EmptyState title="Belum ada departemen" />
       ) : (
         <Table>
-          <thead className="bg-slate-50">
+          <thead>
             <tr>
-              <Th>Nama</Th>
+              <Th>Nama departemen</Th>
               <Th>Kepala departemen</Th>
               <Th className="text-right">Karyawan</Th>
               <Th className="text-right">Jabatan</Th>
               {manage && <Th />}
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100">
+          <tbody className="divide-y divide-line">
             {asTree(departments.data).map(({ d, depth }) => (
-              <tr key={d.id}>
+              <tr key={d.id} className="hover:bg-canvas/60">
                 <Td>
-                  <span style={{ paddingLeft: depth * 20 }} className="font-medium text-slate-900">
-                    {depth > 0 && <span className="mr-1 text-slate-300">└</span>}
+                  <span style={{ paddingLeft: depth * 20 }} className="font-medium text-ink">
+                    {depth > 0 && <span className="mr-1.5 text-line-strong">└</span>}
                     {d.name}
                   </span>
                 </Td>
-                <Td>{d.head ? d.head.fullName : <span className="text-slate-400">Belum ditetapkan</span>}</Td>
-                <Td className="text-right">{d._count.employees}</Td>
-                <Td className="text-right">{d._count.positions}</Td>
+                <Td>
+                  {d.head ? (
+                    <div className="flex items-center gap-2">
+                      <Avatar name={d.head.fullName} size="sm" />
+                      <span>{d.head.fullName}</span>
+                    </div>
+                  ) : (
+                    <span className="text-xs text-ink-subtle">Belum ditetapkan</span>
+                  )}
+                </Td>
+                <Td className="text-right font-mono text-xs">{d._count.employees}</Td>
+                <Td className="text-right font-mono text-xs">{d._count.positions}</Td>
                 {manage && (
                   <Td className="whitespace-nowrap text-right">
                     <Button size="sm" variant="ghost" onClick={() => setEditing(d)} aria-label={`Ubah ${d.name}`}>
-                      <Pencil className="size-4" />
+                      <Pencil className="size-3.5" />
                     </Button>
                     <DeleteButton
                       title={
@@ -146,7 +162,7 @@ function DepartmentsTab() {
                           : `Hapus ${d.name}`
                       }
                       disabled={Boolean(d._count.employees || d._count.positions || d._count.children)}
-                      onClick={() => confirm(`Hapus departemen ${d.name}?`) && del.mutate(d.id)}
+                      onClick={() => setDeleting(d)}
                     />
                   </Td>
                 )}
@@ -156,6 +172,15 @@ function DepartmentsTab() {
         </Table>
       )}
       {editing && <DepartmentModal department={editing === 'new' ? null : editing} all={departments.data ?? []} onClose={() => setEditing(null)} />}
+      <ConfirmModal
+        open={deleting !== null}
+        onClose={() => setDeleting(null)}
+        onConfirm={() => deleting && del.mutate(deleting.id)}
+        loading={del.isPending}
+        title="Hapus departemen"
+        description={`Yakin ingin menghapus departemen "${deleting?.name ?? ''}"? Tindakan ini tercatat di audit log.`}
+        confirmLabel="Hapus departemen"
+      />
     </Card>
   );
 }
@@ -166,7 +191,6 @@ function DepartmentModal({ department, all, onClose }: { department: Department 
     (body: Record<string, unknown>) => (department ? api.patch(`/departments/${department.id}`, body) : api.post('/departments', body)),
     { invalidate: [qk.departments], success: 'Departemen disimpan', onDone: onClose },
   );
-  // Departemen tidak boleh menjadi induk dirinya sendiri (siklus lain dicek di server).
   const parents = all.filter((d) => d.id !== department?.id);
 
   return (
@@ -232,9 +256,11 @@ function PositionsTab() {
   const departments = useDepartments();
   const [filter, setFilter] = useState('');
   const [editing, setEditing] = useState<Position | 'new' | null>(null);
+  const [deleting, setDeleting] = useState<Position | null>(null);
   const del = useApiMutation((id: string) => api.delete(`/positions/${id}`), {
     invalidate: [qk.positions, qk.departments],
     success: 'Jabatan dihapus',
+    onDone: () => setDeleting(null),
   });
   const manage = can('position.manage');
   const rows = (positions.data ?? []).filter((p) => !filter || p.departmentId === filter);
@@ -245,7 +271,7 @@ function PositionsTab() {
         title="Jabatan"
         actions={
           <>
-            <Select aria-label="Filter departemen" className="w-auto" value={filter} onChange={(e) => setFilter(e.target.value)}>
+            <Select aria-label="Filter departemen" className="w-auto min-w-44" value={filter} onChange={(e) => setFilter(e.target.value)}>
               <option value="">Semua departemen</option>
               {departments.data?.map((d) => (
                 <option key={d.id} value={d.id}>
@@ -267,12 +293,12 @@ function PositionsTab() {
         </div>
       )}
       {positions.isPending ? (
-        <Spinner />
+        <TableSkeleton rows={5} cols={5} />
       ) : rows.length === 0 ? (
         <EmptyState title="Belum ada jabatan" />
       ) : (
         <Table>
-          <thead className="bg-slate-50">
+          <thead>
             <tr>
               <Th>Jabatan</Th>
               <Th>Departemen</Th>
@@ -282,23 +308,23 @@ function PositionsTab() {
               {manage && <Th />}
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100">
+          <tbody className="divide-y divide-line">
             {rows.map((p) => (
-              <tr key={p.id}>
-                <Td className="font-medium text-slate-900">{p.title}</Td>
-                <Td>{p.department.name}</Td>
-                <Td className="text-right">{p.level}</Td>
-                <Td>{p.overtimeEligible ? <Badge tone="green">Berhak</Badge> : <Badge>Tidak</Badge>}</Td>
-                <Td className="text-right">{p._count.employees}</Td>
+              <tr key={p.id} className="hover:bg-canvas/60">
+                <Td className="font-medium text-ink">{p.title}</Td>
+                <Td className="text-ink-muted">{p.department.name}</Td>
+                <Td className="text-right font-mono text-xs">{p.level}</Td>
+                <Td>{p.overtimeEligible ? <Badge tone="green" dot>Berhak</Badge> : <Badge>Tidak</Badge>}</Td>
+                <Td className="text-right font-mono text-xs">{p._count.employees}</Td>
                 {manage && (
                   <Td className="whitespace-nowrap text-right">
                     <Button size="sm" variant="ghost" onClick={() => setEditing(p)} aria-label={`Ubah ${p.title}`}>
-                      <Pencil className="size-4" />
+                      <Pencil className="size-3.5" />
                     </Button>
                     <DeleteButton
                       title={p._count.employees ? 'Tidak bisa dihapus: masih dipakai karyawan' : `Hapus ${p.title}`}
                       disabled={p._count.employees > 0}
-                      onClick={() => confirm(`Hapus jabatan ${p.title}?`) && del.mutate(p.id)}
+                      onClick={() => setDeleting(p)}
                     />
                   </Td>
                 )}
@@ -308,6 +334,15 @@ function PositionsTab() {
         </Table>
       )}
       {editing && <PositionModal position={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
+      <ConfirmModal
+        open={deleting !== null}
+        onClose={() => setDeleting(null)}
+        onConfirm={() => deleting && del.mutate(deleting.id)}
+        loading={del.isPending}
+        title="Hapus jabatan"
+        description={`Yakin ingin menghapus jabatan "${deleting?.title ?? ''}"?`}
+        confirmLabel="Hapus jabatan"
+      />
     </Card>
   );
 }
@@ -382,7 +417,12 @@ function LocationsTab() {
   const { can } = useAuth();
   const locations = useWorkLocations();
   const [editing, setEditing] = useState<WorkLocation | 'new' | null>(null);
-  const del = useApiMutation((id: string) => api.delete(`/work-locations/${id}`), { invalidate: [qk.locations], success: 'Lokasi dihapus' });
+  const [deleting, setDeleting] = useState<WorkLocation | null>(null);
+  const del = useApiMutation((id: string) => api.delete(`/work-locations/${id}`), {
+    invalidate: [qk.locations],
+    success: 'Lokasi dihapus',
+    onDone: () => setDeleting(null),
+  });
   const manage = can('location.manage');
 
   return (
@@ -404,24 +444,24 @@ function LocationsTab() {
         </div>
       )}
       {locations.isPending ? (
-        <Spinner />
+        <TableSkeleton rows={3} cols={4} />
       ) : !locations.data?.length ? (
         <EmptyState title="Belum ada lokasi kerja" />
       ) : (
         <Table>
-          <thead className="bg-slate-50">
+          <thead>
             <tr>
-              <Th>Nama</Th>
+              <Th>Nama lokasi</Th>
               <Th>Koordinat</Th>
               <Th className="text-right">Radius</Th>
               <Th>Zona waktu</Th>
               {manage && <Th />}
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100">
+          <tbody className="divide-y divide-line">
             {locations.data.map((l) => (
-              <tr key={l.id}>
-                <Td className="font-medium text-slate-900">{l.name}</Td>
+              <tr key={l.id} className="hover:bg-canvas/60">
+                <Td className="font-medium text-ink">{l.name}</Td>
                 <Td>
                   <a
                     className="font-mono text-xs text-brand-700 hover:underline"
@@ -432,14 +472,14 @@ function LocationsTab() {
                     {Number(l.latitude).toFixed(5)}, {Number(l.longitude).toFixed(5)}
                   </a>
                 </Td>
-                <Td className="text-right">{l.radiusMeters} m</Td>
-                <Td>{TIMEZONES.find((t) => t.value === l.timezone)?.label ?? l.timezone}</Td>
+                <Td className="text-right font-mono text-xs">{l.radiusMeters} m</Td>
+                <Td className="text-ink-muted">{TIMEZONES.find((t) => t.value === l.timezone)?.label ?? l.timezone}</Td>
                 {manage && (
                   <Td className="whitespace-nowrap text-right">
                     <Button size="sm" variant="ghost" onClick={() => setEditing(l)} aria-label={`Ubah ${l.name}`}>
-                      <Pencil className="size-4" />
+                      <Pencil className="size-3.5" />
                     </Button>
-                    <DeleteButton title={`Hapus ${l.name}`} onClick={() => confirm(`Hapus lokasi ${l.name}?`) && del.mutate(l.id)} />
+                    <DeleteButton title={`Hapus ${l.name}`} onClick={() => setDeleting(l)} />
                   </Td>
                 )}
               </tr>
@@ -448,6 +488,15 @@ function LocationsTab() {
         </Table>
       )}
       {editing && <LocationModal location={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
+      <ConfirmModal
+        open={deleting !== null}
+        onClose={() => setDeleting(null)}
+        onConfirm={() => deleting && del.mutate(deleting.id)}
+        loading={del.isPending}
+        title="Hapus lokasi kerja"
+        description={`Yakin ingin menghapus lokasi kerja "${deleting?.name ?? ''}"?`}
+        confirmLabel="Hapus lokasi"
+      />
     </Card>
   );
 }

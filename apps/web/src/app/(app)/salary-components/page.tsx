@@ -16,8 +16,8 @@ import {
   ModalActions,
   PageHeader,
   Select,
-  Spinner,
   Table,
+  TableSkeleton,
   Td,
   Th,
 } from '@/components/ui';
@@ -49,7 +49,7 @@ export default function SalaryComponentsPage() {
       />
       <Card>
         {components.isPending ? (
-          <Spinner />
+          <TableSkeleton rows={4} cols={5} />
         ) : components.isError ? (
           <div className="p-4">
             <Alert>{errorMessage(components.error)}</Alert>
@@ -58,7 +58,7 @@ export default function SalaryComponentsPage() {
           <EmptyState title="Belum ada komponen gaji" />
         ) : (
           <Table>
-            <thead className="bg-slate-50">
+            <thead>
               <tr>
                 <Th>Komponen</Th>
                 <Th>Jenis</Th>
@@ -68,26 +68,26 @@ export default function SalaryComponentsPage() {
                 {manage && <Th />}
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody className="divide-y divide-line">
               {components.data.map((c) => (
-                <tr key={c.id}>
+                <tr key={c.id} className="hover:bg-canvas/60">
                   <Td>
-                    <span className="font-medium text-slate-900">{c.name}</span>
-                    <div className="font-mono text-xs text-slate-500">{c.code}</div>
+                    <span className="font-medium text-ink">{c.name}</span>
+                    <div className="font-mono text-xs text-ink-subtle">{c.code}</div>
                   </Td>
-                  <Td>{LABELS.componentType[c.type]}</Td>
-                  <Td>{LABELS.calculation[c.calculation]}</Td>
+                  <Td className="text-ink-muted">{LABELS.componentType[c.type]}</Td>
+                  <Td className="text-ink-muted">{LABELS.calculation[c.calculation]}</Td>
                   <Td>
-                    <div className="flex flex-wrap gap-1">
+                    <div className="flex flex-wrap gap-1.5">
                       {c.isFixed ? <Badge tone="brand">Tunjangan tetap</Badge> : <Badge>Tidak tetap</Badge>}
                       {!c.isTaxable && <Badge tone="blue">Tidak kena pajak</Badge>}
                     </div>
                   </Td>
-                  <Td>{c.isActive ? <Badge tone="green">Aktif</Badge> : <Badge>Nonaktif</Badge>}</Td>
+                  <Td>{c.isActive ? <Badge tone="green" dot>Aktif</Badge> : <Badge>Nonaktif</Badge>}</Td>
                   {manage && (
                     <Td className="text-right">
                       <Button size="sm" variant="ghost" onClick={() => setEditing(c)} aria-label={`Ubah ${c.name}`}>
-                        <Pencil className="size-4" />
+                        <Pencil className="size-3.5" />
                       </Button>
                     </Td>
                   )}
@@ -173,7 +173,14 @@ function ComponentModal({ component, onClose }: { component: SalaryComponent | n
           </>
         )}
         <Checkbox name="isTaxable" defaultChecked={component?.isTaxable ?? true} label="Kena pajak (PPh 21)" />
-        {component && <Checkbox name="isActive" defaultChecked={component.isActive} label="Aktif" description="Komponen nonaktif tidak bisa ditetapkan ke karyawan baru." />}
+        {component && (
+          <Checkbox
+            name="isActive"
+            defaultChecked={component.isActive}
+            label="Aktif"
+            description="Komponen nonaktif tidak bisa ditetapkan ke karyawan baru."
+          />
+        )}
         <ModalActions>
           <Button variant="secondary" onClick={onClose}>
             Batal

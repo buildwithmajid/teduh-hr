@@ -1,14 +1,15 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Eye, Pencil, Plus } from 'lucide-react';
+import { ArrowLeft, Eye, MoreHorizontal, Pencil, Plus, ShieldAlert, UserX } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { FormEvent, useState } from 'react';
+import { FormEvent, useEffect, useRef, useState } from 'react';
 import { RequirePermission } from '@/components/app-shell';
 import { EmployeeSummaryList, SalaryComponentsTable, SensitiveList } from '@/components/employee-panels';
 import {
   Alert,
+  Avatar,
   Badge,
   Button,
   Card,
@@ -18,10 +19,10 @@ import {
   Input,
   Modal,
   ModalActions,
-  PageHeader,
   Select,
   Spinner,
   Table,
+  TableSkeleton,
   Tabs,
   Td,
   Textarea,
@@ -30,7 +31,7 @@ import {
 } from '@/components/ui';
 import { api, errorMessage } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
-import { formatDate, formatDateTime, formatRupiah, LABELS, todayISO } from '@/lib/format';
+import { formatDate, formatDateTime, formatRupiah, formatTenure, LABELS, todayISO } from '@/lib/format';
 import { qk, useActiveEmployees, useDepartments, usePositions, useSalaryComponents, useWorkLocations } from '@/lib/queries';
 import type { EmployeeSensitive, EmployeeSummary, HistoryEntry, SalaryAssignment } from '@/lib/types';
 import { statusTone } from '../status';
@@ -50,9 +51,21 @@ function EmployeeDetail() {
   const { can } = useAuth();
   const [tab, setTab] = useState<Tab>('summary');
   const [modal, setModal] = useState<null | 'salary' | 'sensitive' | 'terminate'>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
   // Disimpan di sini (bukan di tab) supaya bisa disembunyikan lagi setelah data berubah.
   const [revealed, setRevealed] = useState(false);
   const employee = useQuery({ queryKey: qk.employee(id), queryFn: () => api.get<EmployeeSummary>(`/employees/${id}`) });
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDocClick = (ev: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(ev.target as Node)) setMenuOpen(false);
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [menuOpen]);
+
   const closeModal = (changed = false) => {
     setModal(null);
     if (changed) setRevealed(false);
@@ -63,6 +76,7 @@ function EmployeeDetail() {
   const e = employee.data;
   const active = e.employmentStatus === 'active';
   const canSensitive = can('employee.view_sensitive');
+  const hasSecondaryActions = active && (can('employee.manage_sensitive') || can('employee.manage'));
 
   const tabs: { value: Tab; label: string }[] = [
     { value: 'summary', label: 'Ringkasan' },
@@ -77,46 +91,97 @@ function EmployeeDetail() {
 
   return (
     <>
-      <Link href="/employees" className="mb-3 inline-flex items-center gap-1 text-sm text-slate-500 hover:text-slate-800">
-        <ArrowLeft className="size-4" aria-hidden /> Karyawan
+      <Link href="/employees" className="mb-4 inline-flex items-center gap-1 text-xs font-medium text-ink-muted hover:text-ink">
+        <ArrowLeft className="size-3.5" aria-hidden /> Kembali ke daftar karyawan
       </Link>
-      <PageHeader
-        title={e.fullName}
-        description={
-          <span className="flex flex-wrap items-center gap-2">
-            {e.employeeCode} · {e.position.title}, {e.department.name}
-            <Badge tone={statusTone(e.employmentStatus)}>{LABELS.employmentStatus[e.employmentStatus]}</Badge>
-          </span>
-        }
-        actions={
-          active && (
-            <>
-              {can('employee.manage') && (
-                <Link href={`/employees/${id}/edit`}>
-                  <Button variant="secondary">
-                    <Pencil className="size-4" aria-hidden /> Ubah data
-                  </Button>
-                </Link>
-              )}
-              {can('salary.manage') && (
-                <Button variant="secondary" onClick={() => setModal('salary')}>
-                  Ubah gaji
+
+      {/* Profile Header */}
+      <div className="mb-6 flex flex-wrap items-start justify-between gap-4 border-b border-line pb-5">
+        <div className="flex items-start gap-4">
+          <Avatar name={e.fullName} size="lg" />
+          <div>
+            <div className="flex flex-wrap items-center gap-2.5">
+              <h1 className="text-[22px] font-semibold tracking-tight text-ink">{e.fullName}</h1>
+              <Badge tone={statusTone(e.employmentStatus)} dot>
+                {LABELS.employmentStatus[e.employmentStatus]}
+              </Badge>
+            </div>
+            <p className="mt-1 text-sm text-ink-muted">
+              {e.position.title} · {e.department.name}
+            </p>
+            <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-ink-subtle">
+              <span className="font-mono text-ink-muted">{e.employeeCode}</span>
+              <span>·</span>
+              <span>{LABELS.contractType[e.contractType]}</span>
+              <span>·</span>
+              <span>Masa kerja {formatTenure(e.joinDate, e.resignDate)}</span>
+            </p>
+          </div>
+        </div>
+
+        {active && (
+          <div className="flex flex-wrap items-center gap-2">
+            {can('employee.manage') && (
+              <Link href={`/employees/${id}/edit`}>
+                <Button variant="secondary">
+                  <Pencil className="size-3.5" aria-hidden /> Ubah data
                 </Button>
-              )}
-              {can('employee.manage_sensitive') && (
-                <Button variant="secondary" onClick={() => setModal('sensitive')}>
-                  Ubah NIK/rekening
+              </Link>
+            )}
+            {can('salary.manage') && (
+              <Button variant="secondary" onClick={() => setModal('salary')}>
+                Ubah gaji
+              </Button>
+            )}
+            {hasSecondaryActions && (
+              <div className="relative" ref={menuRef}>
+                <Button
+                  variant="secondary"
+                  aria-label="Aksi lainnya"
+                  aria-expanded={menuOpen}
+                  onClick={() => setMenuOpen((v) => !v)}
+                  className="px-2.5"
+                >
+                  <MoreHorizontal className="size-4" />
                 </Button>
-              )}
-              {can('employee.manage') && (
-                <Button variant="danger" onClick={() => setModal('terminate')}>
-                  Resign / PHK
-                </Button>
-              )}
-            </>
-          )
-        }
-      />
+                {menuOpen && (
+                  <div className="absolute right-0 z-20 mt-1.5 w-52 rounded-lg border border-line bg-surface p-1 shadow-lg">
+                    {can('employee.manage_sensitive') && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMenuOpen(false);
+                          setModal('sensitive');
+                        }}
+                        className="flex w-full cursor-pointer items-center gap-2 rounded-md px-2.5 py-2 text-left text-xs font-medium text-ink hover:bg-canvas"
+                      >
+                        <ShieldAlert className="size-3.5 text-ink-muted" aria-hidden />
+                        Ubah NIK / rekening / NPWP
+                      </button>
+                    )}
+                    {can('employee.manage') && (
+                      <>
+                        {can('employee.manage_sensitive') && <div className="my-1 border-t border-line" />}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setMenuOpen(false);
+                            setModal('terminate');
+                          }}
+                          className="flex w-full cursor-pointer items-center gap-2 rounded-md px-2.5 py-2 text-left text-xs font-medium text-red-700 hover:bg-red-50"
+                        >
+                          <UserX className="size-3.5" aria-hidden />
+                          Proses resign / PHK
+                        </button>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
 
       <Tabs tabs={tabs} value={tab} onChange={setTab} />
 
@@ -158,12 +223,23 @@ function SensitiveTab({ id, revealed, onReveal }: { id: string; revealed: boolea
 
   return (
     <Card>
-      <CardHeader title="Gaji & data sensitif" description="Setiap kali data ini ditampilkan, aksesnya dicatat di audit log." />
+      <CardHeader
+        title="Gaji & data sensitif"
+        description="Terenkripsi di database. Setiap kali ditampilkan, aksesnya dicatat di audit log."
+      />
       <div className="p-5">
         {!revealed ? (
-          <Button variant="secondary" onClick={onReveal}>
-            <Eye className="size-4" aria-hidden /> Tampilkan data sensitif
-          </Button>
+          <div className="flex flex-col items-start gap-3 rounded-md border border-dashed border-line-strong bg-canvas/60 p-5 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-sm font-medium text-ink">Data sensitif disembunyikan</p>
+              <p className="mt-0.5 text-xs text-ink-muted">
+                Klik tombol di samping untuk mendekripsi NIK, gaji pokok, nomor rekening, dan NPWP.
+              </p>
+            </div>
+            <Button variant="secondary" onClick={onReveal}>
+              <Eye className="size-4" aria-hidden /> Tampilkan data
+            </Button>
+          </div>
         ) : data.isPending ? (
           <Spinner />
         ) : data.isError ? (
@@ -224,7 +300,7 @@ function ComponentsTab({ id, active, joinDate }: { id: string; active: boolean; 
         }
       />
       {rows.isPending ? (
-        <Spinner />
+        <TableSkeleton rows={3} cols={4} />
       ) : rows.isError ? (
         <div className="p-5">
           <Alert>{errorMessage(rows.error)}</Alert>
@@ -303,7 +379,7 @@ function ComponentsTab({ id, active, joinDate }: { id: string; active: boolean; 
         </form>
       </Modal>
 
-      <Modal open={ending !== null} onClose={() => setEnding(null)} title={`Akhiri ${ending?.component.name ?? ''}`}>
+      <Modal open={ending !== null} onClose={() => setEnding(null)} title={`Akhiri ${ending?.component.name ?? ''}`} size="sm">
         <form
           onSubmit={(ev: FormEvent<HTMLFormElement>) => {
             ev.preventDefault();
@@ -335,7 +411,6 @@ function HistoryTab({ id }: { id: string }) {
     queryKey: auditedKey.history(id),
     queryFn: () => api.get<HistoryEntry[]>(`/employees/${id}/history`),
   });
-  // Field referensi disimpan sebagai ID; terjemahkan ke nama dari data yang sudah di-cache.
   const departments = useDepartments();
   const positions = usePositions();
   const locations = useWorkLocations();
@@ -348,29 +423,29 @@ function HistoryTab({ id }: { id: string }) {
   };
   const format = (h: HistoryEntry, v: string | null) => {
     if (v === null) return '—';
-    if (h.field === 'base_salary') return formatRupiah(v);
+    if (h.field === 'base_salary') return <span className="font-mono">{formatRupiah(v)}</span>;
     if (h.field === 'employment_status') return LABELS.employmentStatus[v as keyof typeof LABELS.employmentStatus] ?? v;
     if (h.field === 'contract_type') return LABELS.contractType[v as keyof typeof LABELS.contractType] ?? v;
     const name = names[h.field]?.get(v);
     if (name) return name;
-    if (/^[0-9a-f-]{36}$/.test(v)) return <span className="font-mono text-xs text-slate-500">{v.slice(0, 8)}…</span>;
+    if (/^[0-9a-f-]{36}$/.test(v)) return <span className="font-mono text-xs text-ink-subtle">{v.slice(0, 8)}…</span>;
     return v;
   };
 
   return (
     <Card>
-      <CardHeader title="Riwayat perubahan" description="Dipakai untuk prorata payroll dan audit." />
+      <CardHeader title="Riwayat perubahan" description="Dipakai untuk prorata payroll dan jejak audit." />
       {history.isPending ? (
-        <Spinner />
+        <TableSkeleton rows={4} cols={5} />
       ) : history.isError ? (
         <div className="p-5">
           <Alert>{errorMessage(history.error)}</Alert>
         </div>
       ) : history.data.length === 0 ? (
-        <EmptyState title="Belum ada riwayat" />
+        <EmptyState title="Belum ada riwayat perubahan" />
       ) : (
         <Table>
-          <thead className="bg-slate-50">
+          <thead>
             <tr>
               <Th>Berlaku</Th>
               <Th>Data</Th>
@@ -380,15 +455,15 @@ function HistoryTab({ id }: { id: string }) {
               <Th>Dicatat</Th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100">
+          <tbody className="divide-y divide-line">
             {history.data.map((h) => (
-              <tr key={h.id}>
-                <Td className="whitespace-nowrap">{formatDate(h.effectiveDate)}</Td>
-                <Td className="font-medium text-slate-900">{LABELS.historyField[h.field] ?? h.field}</Td>
-                <Td>{format(h, h.oldValue)}</Td>
-                <Td>{format(h, h.newValue)}</Td>
-                <Td className="max-w-xs">{h.reason ?? '—'}</Td>
-                <Td className="whitespace-nowrap text-xs text-slate-500">{formatDateTime(h.createdAt)}</Td>
+              <tr key={h.id} className="hover:bg-canvas/50">
+                <Td className="whitespace-nowrap font-mono text-xs">{formatDate(h.effectiveDate)}</Td>
+                <Td className="font-medium text-ink">{LABELS.historyField[h.field] ?? h.field}</Td>
+                <Td className="text-ink-muted">{format(h, h.oldValue)}</Td>
+                <Td className="text-ink">{format(h, h.newValue)}</Td>
+                <Td className="max-w-xs text-ink-muted">{h.reason ?? '—'}</Td>
+                <Td className="whitespace-nowrap font-mono text-xs text-ink-subtle">{formatDateTime(h.createdAt)}</Td>
               </tr>
             ))}
           </tbody>
@@ -401,11 +476,8 @@ function HistoryTab({ id }: { id: string }) {
 function useInvalidateEmployee(id: string) {
   const queryClient = useQueryClient();
   return () => {
-    // qk.employees sudah mencakup qk.employee(id); jangan invalidate dua kali (request ganda).
     void queryClient.invalidateQueries({ queryKey: qk.employees });
-    // Riwayat bertambah setelah perubahan; refetch hanya jika tab riwayat sedang terbuka.
     void queryClient.invalidateQueries({ queryKey: auditedKey.history(id) });
-    // Data sensitif lama dibuang; user perlu menekan "Tampilkan" lagi (dan tercatat lagi).
     queryClient.removeQueries({ queryKey: auditedKey.sensitive(id) });
   };
 }
@@ -497,9 +569,9 @@ function SensitiveEditModal({ id, open, onClose }: { id: string; open: boolean; 
         className="space-y-4"
       >
         {m.isError && <Alert>{errorMessage(m.error)}</Alert>}
-        <Field label="NIK baru">{(fid) => <Input id={fid} name="nik" inputMode="numeric" pattern="\d{16}" maxLength={16} />}</Field>
-        <Field label="Nomor rekening baru">{(fid) => <Input id={fid} name="bankAccountNumber" inputMode="numeric" pattern="\d{5,30}" />}</Field>
-        <Field label="NPWP baru">{(fid) => <Input id={fid} name="npwp" inputMode="numeric" pattern="\d{15,16}" />}</Field>
+        <Field label="NIK baru">{(fid) => <Input id={fid} name="nik" inputMode="numeric" pattern="\d{16}" maxLength={16} className="font-mono" />}</Field>
+        <Field label="Nomor rekening baru">{(fid) => <Input id={fid} name="bankAccountNumber" inputMode="numeric" pattern="\d{5,30}" className="font-mono" />}</Field>
+        <Field label="NPWP baru">{(fid) => <Input id={fid} name="npwp" inputMode="numeric" pattern="\d{15,16}" className="font-mono" />}</Field>
         <Field label="Alasan" required>
           {(fid) => <Textarea id={fid} name="reason" required minLength={3} maxLength={500} />}
         </Field>
@@ -576,7 +648,9 @@ function TerminateModal({ employee, open, onClose }: { employee: EmployeeSummary
           }}
           className="space-y-4"
         >
-          <Alert tone="amber">Data karyawan tidak dihapus (dibutuhkan untuk histori payroll & pajak), tapi akun loginnya langsung dinonaktifkan.</Alert>
+          <Alert tone="amber">
+            Data karyawan tidak dihapus (dibutuhkan untuk histori payroll & pajak), tapi akun loginnya langsung dinonaktifkan.
+          </Alert>
           {m.isError && <Alert>{errorMessage(m.error)}</Alert>}
           <Field label="Jenis" required>
             {(fid) => (

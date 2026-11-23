@@ -190,3 +190,167 @@ export interface AuditLog {
   userAgent: string | null;
   createdAt: string;
 }
+
+// ───────────── Fase 2 ─────────────
+
+export type AttendanceStatus =
+  | 'present'
+  | 'late'
+  | 'absent'
+  | 'on_leave'
+  | 'half_day_leave'
+  | 'sick'
+  | 'permit'
+  | 'holiday'
+  | 'day_off';
+
+export type RequestStatus = 'pending' | 'approved' | 'rejected' | 'cancelled';
+export type OvertimeDayType = 'workday' | 'rest_day' | 'holiday' | 'holiday_shortest_day';
+export type ApprovalRequestType = 'leave' | 'reimbursement' | 'payroll' | 'attendance_correction' | 'overtime';
+
+export interface Shift {
+  id: string;
+  name: string;
+  startTime: string;
+  endTime: string;
+  isOvernight: boolean;
+  lateToleranceMinutes: number;
+  workHours: string;
+  isDefault: boolean;
+}
+
+export interface Holiday {
+  id: string;
+  companyId: string | null;
+  date: string;
+  name: string;
+  type: 'national' | 'collective_leave' | 'company';
+  deductsAnnualLeave: boolean;
+}
+
+export interface AttendanceRecord {
+  id: string;
+  employeeId: string;
+  workDate: string;
+  clockInTime: string | null;
+  clockOutTime: string | null;
+  clockInDistanceM: number | null;
+  clockOutDistanceM: number | null;
+  lateMinutes: number;
+  anomalyFlags: string[];
+  status: AttendanceStatus;
+  notes: string | null;
+  shift?: Shift | null;
+  employee?: { id: string; fullName: string; employeeCode: string; department: { name: string } };
+}
+
+export interface AttendanceToday {
+  workDate: string;
+  timezone: string;
+  workLocation: {
+    id: string;
+    name: string;
+    latitude: number;
+    longitude: number;
+    radiusMeters: number;
+    timezone: string;
+  } | null;
+  shift: Shift | null;
+  attendance: AttendanceRecord | null;
+}
+
+export interface AttendanceCorrection {
+  id: string;
+  workDate: string;
+  requestedClockIn: string | null;
+  requestedClockOut: string | null;
+  reason: string;
+  status: RequestStatus;
+  currentApprovalStep: number;
+  createdAt: string;
+}
+
+export interface LeaveType {
+  id: string;
+  code: string;
+  name: string;
+  defaultQuotaDays: string | null;
+  isPaid: boolean;
+  requiresDocument: boolean;
+  genderRestriction: Gender | null;
+  allowHalfDay: boolean;
+  minServiceMonths: number;
+  maxCarryOverDays: string;
+  countsWorkingDaysOnly: boolean;
+  isActive: boolean;
+}
+
+export interface LeaveBalance {
+  id: string;
+  year: number;
+  quotaDays: number;
+  carriedOverDays: number;
+  usedDays: number;
+  remainingDays: number;
+  leaveType: LeaveType;
+}
+
+export interface LeaveRequest {
+  id: string;
+  startDate: string;
+  endDate: string;
+  isHalfDay: boolean;
+  totalDays: number;
+  reason: string;
+  status: RequestStatus;
+  currentApprovalStep: number;
+  createdAt: string;
+  leaveType: { id: string; code: string; name: string; isPaid: boolean };
+  employee?: { id: string; fullName: string; employeeCode: string; department: { name: string } };
+}
+
+export interface OvertimeQuota {
+  eligible: boolean;
+  usedWeekHours: number;
+  maxWeekHours: number;
+  maxDayHours?: number;
+  weekStart: string;
+  weekEnd: string;
+}
+
+export interface OvertimeEntry {
+  id: string;
+  workDate: string;
+  startTime: string;
+  endTime: string;
+  hours: number;
+  dayType: OvertimeDayType;
+  reason: string;
+  status: RequestStatus;
+  currentApprovalStep: number;
+  createdAt: string;
+  employee?: { id: string; fullName: string; employeeCode: string; department: { name: string } };
+}
+
+export interface PendingApproval {
+  requestType: ApprovalRequestType;
+  requestId: string;
+  employee: { id: string; fullName: string; employeeCode: string; department: string };
+  title: string;
+  subtitle: string;
+  reason: string;
+  stepOrder: number;
+  totalSteps: number;
+  onBehalfOf: string | null;
+  createdAt: string;
+}
+
+export interface AppNotification {
+  id: string;
+  type: string;
+  title: string;
+  message: string;
+  isRead: boolean;
+  linkUrl: string | null;
+  createdAt: string;
+}

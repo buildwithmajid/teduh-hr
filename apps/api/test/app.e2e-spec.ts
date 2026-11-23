@@ -22,7 +22,7 @@ describe('HRIS API — Fase 1 (e2e)', () => {
     prisma = new PrismaClient();
     // HR selalu mulai dari kondisi belum enrol MFA supaya alur setup bisa diuji berulang.
     await prisma.user.update({
-      where: { email: 'hr@contoh.test' },
+      where: { email: 'hr@ruangteduh.test' },
       data: { mfaEnabled: false, mfaSecretEncrypted: null, mfaPendingEncrypted: null, failedLoginCount: 0, lockedUntil: null },
     });
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
@@ -47,7 +47,7 @@ describe('HRIS API — Fase 1 (e2e)', () => {
   it('staff: login tanpa MFA, lihat profil sendiri, tapi tidak bisa melihat daftar karyawan', async () => {
     const res = await request(app.getHttpServer())
       .post('/api/auth/login')
-      .send({ email: 'staff@contoh.test', password: PASSWORD })
+      .send({ email: 'staff@ruangteduh.test', password: PASSWORD })
       .expect(200);
     expect(res.body.status).toBe('ok');
     expect(res.body.refreshToken).toBeUndefined(); // refresh token hanya di cookie
@@ -55,8 +55,8 @@ describe('HRIS API — Fase 1 (e2e)', () => {
     const token = res.body.accessToken;
 
     const me = await request(app.getHttpServer()).get('/api/employees/me').set('Authorization', `Bearer ${token}`).expect(200);
-    expect(me.body.employeeCode).toBe('EMP-0005');
-    expect(me.body.baseSalary).toBe(8_000_000);
+    expect(me.body.employeeCode).toBe('RTK-0006');
+    expect(me.body.baseSalary).toBe(12_500_000);
     expect(me.body.salaryComponents.length).toBeGreaterThan(0);
 
     await request(app.getHttpServer()).get('/api/employees').set('Authorization', `Bearer ${token}`).expect(403);
@@ -65,7 +65,7 @@ describe('HRIS API — Fase 1 (e2e)', () => {
   it('password salah ditolak dengan pesan generik', async () => {
     const res = await request(app.getHttpServer())
       .post('/api/auth/login')
-      .send({ email: 'tidak-ada@contoh.test', password: 'salah-sekali-123' })
+      .send({ email: 'tidak-ada@ruangteduh.test', password: 'salah-sekali-123' })
       .expect(401);
     expect(res.body.message).toBe('Email atau password salah');
   });
@@ -73,7 +73,7 @@ describe('HRIS API — Fase 1 (e2e)', () => {
   it('HR: wajib enrol MFA sebelum dapat token', async () => {
     const res = await request(app.getHttpServer())
       .post('/api/auth/login')
-      .send({ email: 'hr@contoh.test', password: PASSWORD })
+      .send({ email: 'hr@ruangteduh.test', password: PASSWORD })
       .expect(200);
     expect(res.body.status).toBe('mfa_setup_required');
     const { mfaToken } = res.body;
@@ -94,9 +94,9 @@ describe('HRIS API — Fase 1 (e2e)', () => {
   it('HR: membuat karyawan, data sensitif terenkripsi di DB & bisa dicari lewat NIK', async () => {
     const auth = { Authorization: `Bearer ${hrToken}` };
     const depts = await request(app.getHttpServer()).get('/api/departments').set(auth).expect(200);
-    const eng = depts.body.find((x: { name: string }) => x.name === 'Engineering');
-    const positions = await request(app.getHttpServer()).get(`/api/positions?departmentId=${eng.id}`).set(auth).expect(200);
-    const engineer = positions.body.find((p: { title: string }) => p.title === 'Software Engineer');
+    const desain = depts.body.find((x: { name: string }) => x.name === 'Studio Desain');
+    const positions = await request(app.getHttpServer()).get(`/api/positions?departmentId=${desain.id}`).set(auth).expect(200);
+    const architect = positions.body.find((p: { title: string }) => p.title === 'Senior Architect');
 
     const nik = `3171${run.padStart(12, '9')}`.slice(0, 16);
     const created = await request(app.getHttpServer())
@@ -111,8 +111,8 @@ describe('HRIS API — Fase 1 (e2e)', () => {
         joinDate: '2026-11-02',
         contractType: 'probation',
         probationEndDate: '2027-02-01',
-        departmentId: eng.id,
-        positionId: engineer.id,
+        departmentId: desain.id,
+        positionId: architect.id,
         ptkpStatus: 'TK/0',
         baseSalary: 7_500_000,
         bankAccountNumber: '1234567890',
@@ -157,7 +157,7 @@ describe('HRIS API — Fase 1 (e2e)', () => {
   it('refresh token dirotasi dan pemakaian ulang token lama mencabut sesi', async () => {
     const res = await request(app.getHttpServer())
       .post('/api/auth/login')
-      .send({ email: 'staff@contoh.test', password: PASSWORD })
+      .send({ email: 'staff@ruangteduh.test', password: PASSWORD })
       .expect(200);
     const firstCookie = res.headers['set-cookie'][0].split(';')[0];
 

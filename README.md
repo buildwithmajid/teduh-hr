@@ -1,6 +1,6 @@
-# HRIS & Payroll
+# TeduhHR — HRIS & Payroll
 
-Sistem HRIS & payroll untuk perusahaan Indonesia (portfolio project). Dokumen desain:
+Sistem HRIS & payroll untuk perusahaan Indonesia (portfolio project) dengan perusahaan demo fiktif **PT Ruang Teduh Karya** (Studio Arsitektur & Design-Build — Jakarta, Bandung, Bali). Dokumen desain:
 
 - [PRD-HRIS-Payroll-System.md](PRD-HRIS-Payroll-System.md) — kebutuhan produk
 - [ERD-Sistem-HRIS.md](ERD-Sistem-HRIS.md) — skema database
@@ -10,8 +10,8 @@ Sistem HRIS & payroll untuk perusahaan Indonesia (portfolio project). Dokumen de
 
 | Fase | Isi | Status |
 |---|---|---|
-| 1 | Auth + RBAC + MFA, audit log, enkripsi kolom, organisasi, karyawan & komponen gaji | **API selesai**, UI belum |
-| 2 | Absensi, approval workflow, cuti, lembur | belum |
+| 1 | Auth + RBAC + MFA, audit log, enkripsi kolom, organisasi, karyawan & komponen gaji | **API & UI selesai** |
+| 2 | Absensi, approval workflow, cuti, lembur | **API & UI selesai** |
 | 3 | Payroll engine | belum |
 | 4 | Run payroll, slip gaji, dashboard | belum |
 | 5 | THR, reimbursement, notifikasi, export | belum |
@@ -55,11 +55,25 @@ npm run dev
 
 API berjalan di `http://localhost:3100/api` (web: `http://localhost:3001`). Cek: `GET /api/health`.
 
-### Akun demo (dari seed)
+### Akun demo (dari seed — PT Ruang Teduh Karya)
 
-`admin@contoh.test` (super_admin), `hr@contoh.test` (hr_admin), `finance@contoh.test`, `manager@contoh.test`, `staff@contoh.test`. Password semua akun = `SEED_DEFAULT_PASSWORD` di `.env`.
+Password semua akun demo (nilai default `SEED_DEFAULT_PASSWORD` di `apps/api/.env` untuk development): **`Demo-Hris-2026!`**
 
-Role super_admin, hr_admin, dan finance wajib MFA: login pertama mengembalikan `mfa_setup_required` + `mfaToken`, lanjutkan ke `POST /api/auth/mfa/setup` lalu `POST /api/auth/mfa/enable` dengan kode dari aplikasi authenticator.
+| Email | Role | Wajib MFA? | Keterangan |
+|---|---|---|---|
+| `admin@ruangteduh.test` | `super_admin` | Ya | Akses penuh sistem, profil perusahaan, verifikasi audit |
+| `hr@ruangteduh.test` | `hr_admin` | Ya | Kelola karyawan, organisasi, komponen gaji, kebijakan |
+| `finance@ruangteduh.test` | `finance` | Ya | Lihat data gaji, komponen gaji, dan audit log |
+| `manager@ruangteduh.test` | `manager`, `staff` | Tidak | Lihat profil sendiri & daftar tim langsung |
+| `staff@ruangteduh.test` | `staff` | Tidak | Self-service profil & komponen gaji sendiri |
+
+Role `super_admin`, `hr_admin`, dan `finance` wajib MFA: saat login pertama kali, pindai kode QR dengan aplikasi authenticator (Google Authenticator, Microsoft Authenticator, 1Password, dll) lalu masukkan kode 6 digitnya.
+
+Untuk menjalankan frontend (di terminal terpisah dari root repo):
+
+```bash
+npm run dev -w @hris/web
+```
 
 ### Test
 

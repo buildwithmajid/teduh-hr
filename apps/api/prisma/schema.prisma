@@ -66,6 +66,58 @@ enum AuditAction {
   login
 }
 
+enum AttendanceStatus {
+  present
+  late
+  absent
+  on_leave
+  half_day_leave
+  sick
+  permit
+  holiday
+  day_off
+}
+
+enum RequestStatus {
+  pending
+  approved
+  rejected
+  cancelled
+}
+
+enum HolidayType {
+  national
+  collective_leave
+  company
+}
+
+enum ApprovalRequestType {
+  leave
+  reimbursement
+  payroll
+  attendance_correction
+  overtime
+}
+
+enum ApproverType {
+  direct_supervisor
+  department_head
+  role
+}
+
+enum ApprovalAction {
+  approved
+  rejected
+  escalated
+}
+
+enum OvertimeDayType {
+  workday
+  rest_day
+  holiday
+  holiday_shortest_day
+}
+
 // ───────────────────────────── Auth & RBAC ─────────────────────────────
 
 model User {
@@ -82,9 +134,14 @@ model User {
   createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  employee      Employee?
-  userRoles     UserRole[]
-  refreshTokens RefreshToken[]
+  employee            Employee?
+  userRoles           UserRole[]
+  refreshTokens       RefreshToken[]
+  approvalLogs        ApprovalLog[]        @relation("ApprovalActor")
+  delegatedLogs       ApprovalLog[]        @relation("ApprovalBehalfOf")
+  delegationsGiven    ApprovalDelegation[] @relation("Delegator")
+  delegationsReceived ApprovalDelegation[] @relation("Delegate")
+  notifications       Notification[]
 
   @@map("users")
 }
@@ -100,6 +157,8 @@ model Role {
   company         Company?         @relation(fields: [companyId], references: [id])
   rolePermissions RolePermission[]
   userRoles       UserRole[]
+  approverSteps   ApprovalStep[]   @relation("StepApproverRole")
+  fallbackSteps   ApprovalStep[]   @relation("StepFallbackRole")
 
   // UNIQUE (company_id, name) NULLS NOT DISTINCT dibuat di migrasi SQL
   @@map("roles")
@@ -172,13 +231,17 @@ model Company {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  settings         CompanySettings?
-  departments      Department[]
-  workLocations    WorkLocation[]
-  employees        Employee[]
-  roles            Role[]
-  userRoles        UserRole[]
-  salaryComponents SalaryComponent[]
+  settings          CompanySettings?
+  departments       Department[]
+  workLocations     WorkLocation[]
+  employees         Employee[]
+  roles             Role[]
+  userRoles         UserRole[]
+  salaryComponents  SalaryComponent[]
+  shifts            Shift[]
+  holidays          Holiday[]
+  leaveTypes        LeaveType[]
+  approvalWorkflows ApprovalWorkflow[]
 
   @@map("companies")
 }
@@ -303,9 +366,15 @@ model Employee {
   supervisor       Employee?                 @relation("Supervision", fields: [supervisorId], references: [id])
   subordinates     Employee[]                @relation("Supervision")
   workLocation     WorkLocation?             @relation(fields: [workLocationId], references: [id])
-  headOf           Department[]              @relation("DepartmentHead")
-  history          EmployeeHistory[]
-  salaryComponents EmployeeSalaryComponent[]
+  headOf                Department[]              @relation("DepartmentHead")
+  history               EmployeeHistory[]
+  salaryComponents      EmployeeSalaryComponent[]
+  shiftSchedules        ShiftSchedule[]
+  attendances           Attendance[]
+  attendanceCorrections AttendanceCorrection[]
+  leaveBalances         LeaveBalance[]
+  leaveRequests         LeaveRequest[]
+  overtimeEntries       OvertimeEntry[]
 
   @@unique([companyId, nikHash])
   @@unique([companyId, employeeCode])
@@ -393,4 +462,308 @@ model AuditLog {
   @@index([tableName, recordId])
   @@index([companyId, createdAt])
   @@map("audit_logs")
+}
+
+// ───────────────────────────── Approval Workflow (Fase 2) ─────────────────────────────
+
+model ApprovalWorkflow {
+  id          String              @id @default(uuid()) @db.Uuid
+  companyId   String              @map("company_id") @db.Uuid
+  requestType ApprovalRequestType @map("request_type")
+  name        String              @db.VarChar(100)
+  version     Int                 @default(1)
+  isActive    Boolean             @default(true) @map("is_active")
+  createdAt   DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  company               Company                @relation(fields: [companyId], references: [id])
+  steps                 ApprovalStep[]
+  leaveRequests         LeaveRequest[]
+  attendanceCorrections AttendanceCorrection[]
+  overtimeEntries       OvertimeEntry[]
+
+  @@unique([companyId, requestType, version])
+  @@index([companyId, requestType, isActive])
+  @@map("approval_workflows")
+}
+
+model ApprovalStep {
+  id                 String       @id @default(uuid()) @db.Uuid
+  workflowId         String       @map("workflow_id") @db.Uuid
+  stepOrder          Int          @map("step_order")
+  approverType       ApproverType @map("approver_type")
+  approverRoleId     String?      @map("approver_role_id") @db.Uuid
+  fallbackRoleId     String?      @map("fallback_role_id") @db.Uuid
+  escalateAfterHours Int?         @map("escalate_after_hours")
+
+  workflow     ApprovalWorkflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  approverRole Role?            @relation("StepApproverRole", fields: [approverRoleId], references: [id])
+  fallbackRole Role?            @relation("StepFallbackRole", fields: [fallbackRoleId], references: [id])
+  logs         ApprovalLog[]
+
+  @@unique([workflowId, stepOrder])
+  @@map("approval_steps")
+}
+
+model ApprovalLog {
+  id          String              @id @default(uuid()) @db.Uuid
+  requestType ApprovalRequestType @map("request_type")
+  requestId   String              @map("request_id") @db.Uuid
+  stepId      String              @map("step_id") @db.Uuid
+  approverId  String              @map("approver_id") @db.Uuid
+  onBehalfOf  String?             @map("on_behalf_of") @db.Uuid
+  action      ApprovalAction
+  notes       String?
+  createdAt   DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  step       ApprovalStep @relation(fields: [stepId], references: [id])
+  approver   User         @relation("ApprovalActor", fields: [approverId], references: [id])
+  behalfUser User?        @relation("ApprovalBehalfOf", fields: [onBehalfOf], references: [id])
+
+  @@index([requestType, requestId])
+  @@map("approval_logs")
+}
+
+model ApprovalDelegation {
+  id           String   @id @default(uuid()) @db.Uuid
+  companyId    String   @map("company_id") @db.Uuid
+  delegatorId  String   @map("delegator_id") @db.Uuid
+  delegateId   String   @map("delegate_id") @db.Uuid
+  startDate    DateTime @map("start_date") @db.Date
+  endDate      DateTime @map("end_date") @db.Date
+  requestTypes String[] @default([]) @map("request_types")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  delegator User @relation("Delegator", fields: [delegatorId], references: [id], onDelete: Cascade)
+  delegate  User @relation("Delegate", fields: [delegateId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, delegatorId, startDate, endDate])
+  @@map("approval_delegations")
+}
+
+// ───────────────────────────── Absensi (Fase 2) ─────────────────────────────
+
+model Shift {
+  id                   String   @id @default(uuid()) @db.Uuid
+  companyId            String   @map("company_id") @db.Uuid
+  name                 String   @db.VarChar(50)
+  startTime            String   @map("start_time") @db.VarChar(5) // "HH:MM" jam lokal
+  endTime              String   @map("end_time") @db.VarChar(5)   // "HH:MM" jam lokal
+  isOvernight          Boolean  @default(false) @map("is_overnight")
+  lateToleranceMinutes Int      @default(0) @map("late_tolerance_minutes")
+  workHours            Decimal  @map("work_hours") @db.Decimal(4, 2)
+  isDefault            Boolean  @default(false) @map("is_default")
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  company     Company         @relation(fields: [companyId], references: [id])
+  schedules   ShiftSchedule[]
+  attendances Attendance[]
+
+  @@unique([companyId, name])
+  @@map("shifts")
+}
+
+model ShiftSchedule {
+  id         String   @id @default(uuid()) @db.Uuid
+  employeeId String   @map("employee_id") @db.Uuid
+  date       DateTime @db.Date
+  shiftId    String?  @map("shift_id") @db.Uuid // null = hari istirahat (day_off)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  employee Employee @relation(fields: [employeeId], references: [id])
+  shift    Shift?   @relation(fields: [shiftId], references: [id])
+
+  @@unique([employeeId, date])
+  @@map("shift_schedules")
+}
+
+model Attendance {
+  id                String           @id @default(uuid()) @db.Uuid
+  employeeId        String           @map("employee_id") @db.Uuid
+  shiftId           String?          @map("shift_id") @db.Uuid
+  workDate          DateTime         @map("work_date") @db.Date
+  clockInTime       DateTime?        @map("clock_in_time") @db.Timestamptz(6)
+  clockOutTime      DateTime?        @map("clock_out_time") @db.Timestamptz(6)
+  clockInLat        Decimal?         @map("clock_in_lat") @db.Decimal(9, 6)
+  clockInLng        Decimal?         @map("clock_in_lng") @db.Decimal(9, 6)
+  clockOutLat       Decimal?         @map("clock_out_lat") @db.Decimal(9, 6)
+  clockOutLng       Decimal?         @map("clock_out_lng") @db.Decimal(9, 6)
+  clockInDistanceM  Int?             @map("clock_in_distance_m")
+  clockOutDistanceM Int?             @map("clock_out_distance_m")
+  clockInPhotoKey   String?          @map("clock_in_photo_key") @db.VarChar(500)
+  clockOutPhotoKey  String?          @map("clock_out_photo_key") @db.VarChar(500)
+  deviceFingerprint String?          @map("device_fingerprint") @db.VarChar(255)
+  ipAddress         String?          @map("ip_address") @db.VarChar(64)
+  lateMinutes       Int              @default(0) @map("late_minutes")
+  anomalyFlags      String[]         @default([]) @map("anomaly_flags")
+  status            AttendanceStatus @default(present)
+  notes             String?
+  createdAt         DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  employee    Employee               @relation(fields: [employeeId], references: [id])
+  shift       Shift?                 @relation(fields: [shiftId], references: [id])
+  corrections AttendanceCorrection[]
+
+  @@unique([employeeId, workDate])
+  @@index([workDate])
+  @@map("attendance")
+}
+
+model AttendanceCorrection {
+  id                  String        @id @default(uuid()) @db.Uuid
+  attendanceId        String?       @map("attendance_id") @db.Uuid
+  employeeId          String        @map("employee_id") @db.Uuid
+  workDate            DateTime      @map("work_date") @db.Date
+  requestedClockIn    DateTime?     @map("requested_clock_in") @db.Timestamptz(6)
+  requestedClockOut   DateTime?     @map("requested_clock_out") @db.Timestamptz(6)
+  reason              String
+  workflowId          String        @map("workflow_id") @db.Uuid
+  currentApprovalStep Int           @default(1) @map("current_approval_step")
+  status              RequestStatus @default(pending)
+  createdAt           DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  attendance Attendance?      @relation(fields: [attendanceId], references: [id])
+  employee   Employee         @relation(fields: [employeeId], references: [id])
+  workflow   ApprovalWorkflow @relation(fields: [workflowId], references: [id])
+
+  @@index([employeeId, status])
+  @@map("attendance_corrections")
+}
+
+model Holiday {
+  id                 String      @id @default(uuid()) @db.Uuid
+  companyId          String?     @map("company_id") @db.Uuid // null = libur nasional
+  date               DateTime    @db.Date
+  name               String      @db.VarChar(100)
+  type               HolidayType @default(national)
+  deductsAnnualLeave Boolean     @default(false) @map("deducts_annual_leave")
+  createdAt          DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  company Company? @relation(fields: [companyId], references: [id])
+
+  // UNIQUE (company_id, date) NULLS NOT DISTINCT dibuat di migrasi SQL
+  @@index([date])
+  @@map("holidays")
+}
+
+// ───────────────────────────── Cuti & Izin (Fase 2) ─────────────────────────────
+
+model LeaveType {
+  id                    String   @id @default(uuid()) @db.Uuid
+  companyId             String   @map("company_id") @db.Uuid
+  code                  String   @db.VarChar(30)
+  name                  String   @db.VarChar(50)
+  defaultQuotaDays      Decimal? @map("default_quota_days") @db.Decimal(5, 2)
+  isPaid                Boolean  @default(true) @map("is_paid")
+  requiresDocument      Boolean  @default(false) @map("requires_document")
+  genderRestriction     Gender?  @map("gender_restriction")
+  allowHalfDay          Boolean  @default(false) @map("allow_half_day")
+  minServiceMonths      Int      @default(0) @map("min_service_months")
+  maxCarryOverDays      Decimal  @default(0) @map("max_carry_over_days") @db.Decimal(5, 2)
+  carryOverExpiryMonths Int?     @map("carry_over_expiry_months")
+  countsWorkingDaysOnly Boolean  @default(true) @map("counts_working_days_only")
+  isActive              Boolean  @default(true) @map("is_active")
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  company  Company        @relation(fields: [companyId], references: [id])
+  balances LeaveBalance[]
+  requests LeaveRequest[]
+
+  @@unique([companyId, code])
+  @@map("leave_types")
+}
+
+model LeaveBalance {
+  id                   String    @id @default(uuid()) @db.Uuid
+  employeeId           String    @map("employee_id") @db.Uuid
+  leaveTypeId          String    @map("leave_type_id") @db.Uuid
+  year                 Int
+  quotaDays            Decimal   @map("quota_days") @db.Decimal(5, 2)
+  carriedOverDays      Decimal   @default(0) @map("carried_over_days") @db.Decimal(5, 2)
+  carriedOverExpiresAt DateTime? @map("carried_over_expires_at") @db.Date
+  usedDays             Decimal   @default(0) @map("used_days") @db.Decimal(5, 2)
+  version              Int       @default(0)
+  adjustedBy           String?   @map("adjusted_by") @db.Uuid
+  adjustmentReason     String?   @map("adjustment_reason")
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  employee  Employee  @relation(fields: [employeeId], references: [id])
+  leaveType LeaveType @relation(fields: [leaveTypeId], references: [id])
+
+  @@unique([employeeId, leaveTypeId, year])
+  @@index([employeeId, year])
+  @@map("leave_balances")
+}
+
+model LeaveRequest {
+  id                  String        @id @default(uuid()) @db.Uuid
+  employeeId          String        @map("employee_id") @db.Uuid
+  leaveTypeId         String        @map("leave_type_id") @db.Uuid
+  workflowId          String        @map("workflow_id") @db.Uuid
+  startDate           DateTime      @map("start_date") @db.Date
+  endDate             DateTime      @map("end_date") @db.Date
+  isHalfDay           Boolean       @default(false) @map("is_half_day")
+  totalDays           Decimal       @map("total_days") @db.Decimal(5, 2)
+  reason              String
+  attachmentKey       String?       @map("attachment_key") @db.VarChar(500)
+  status              RequestStatus @default(pending)
+  currentApprovalStep Int           @default(1) @map("current_approval_step")
+  createdAt           DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  employee  Employee         @relation(fields: [employeeId], references: [id])
+  leaveType LeaveType        @relation(fields: [leaveTypeId], references: [id])
+  workflow  ApprovalWorkflow @relation(fields: [workflowId], references: [id])
+
+  @@index([employeeId, status])
+  @@index([startDate, endDate])
+  @@map("leave_requests")
+}
+
+// ───────────────────────────── Lembur (Fase 2) ─────────────────────────────
+
+model OvertimeEntry {
+  id                  String          @id @default(uuid()) @db.Uuid
+  employeeId          String          @map("employee_id") @db.Uuid
+  workDate            DateTime        @map("work_date") @db.Date
+  startTime           DateTime        @map("start_time") @db.Timestamptz(6)
+  endTime             DateTime        @map("end_time") @db.Timestamptz(6)
+  hours               Decimal         @db.Decimal(4, 2)
+  dayType             OvertimeDayType @map("day_type")
+  reason              String
+  workflowId          String          @map("workflow_id") @db.Uuid
+  currentApprovalStep Int             @default(1) @map("current_approval_step")
+  status              RequestStatus   @default(pending)
+  createdAt           DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime        @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  employee Employee         @relation(fields: [employeeId], references: [id])
+  workflow ApprovalWorkflow @relation(fields: [workflowId], references: [id])
+
+  @@index([employeeId, workDate])
+  @@index([employeeId, status])
+  @@map("overtime_entries")
+}
+
+// ───────────────────────────── Notifikasi In-App (Fase 2) ─────────────────────────────
+
+model Notification {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  type      String   @db.VarChar(50)
+  title     String   @db.VarChar(255)
+  message   String
+  isRead    Boolean  @default(false) @map("is_read")
+  linkUrl   String?  @map("link_url") @db.VarChar(500)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead, createdAt])
+  @@map("notifications")
 }

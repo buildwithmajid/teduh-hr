@@ -97,6 +97,11 @@ class CreateLeaveRequestDto {
   @MinLength(3)
   @MaxLength(500)
   reason: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  attachmentKey?: string;
 }
 
 class AdjustBalanceDto {

@@ -118,6 +118,50 @@ enum OvertimeDayType {
   holiday_shortest_day
 }
 
+enum BpjsProgram {
+  kesehatan
+  jht
+  jkk
+  jkm
+  jp
+}
+
+enum PayrollRunType {
+  regular
+  thr
+  bonus
+  correction
+  final_settlement
+}
+
+enum PayrollPeriodStatus {
+  draft
+  pending_approval
+  approved
+  locked
+}
+
+enum Pph21Method {
+  ter
+  annual_reconciliation
+}
+
+enum PayrollComponentKind {
+  earning
+  deduction
+  company_contribution
+  taxable_benefit
+}
+
+enum ReimbursementCategory {
+  transport
+  medical
+  meal
+  office_supply
+  travel
+  other
+}
+
 // ───────────────────────────── Auth & RBAC ─────────────────────────────
 
 model User {
@@ -242,6 +286,8 @@ model Company {
   holidays          Holiday[]
   leaveTypes        LeaveType[]
   approvalWorkflows ApprovalWorkflow[]
+  payrollPeriods    PayrollPeriod[]
+  reimbursements    Reimbursement[]
 
   @@map("companies")
 }
@@ -375,6 +421,9 @@ model Employee {
   leaveBalances         LeaveBalance[]
   leaveRequests         LeaveRequest[]
   overtimeEntries       OvertimeEntry[]
+  payrollDetails        PayrollDetail[]
+  taxYearSummaries      TaxYearSummary[]
+  reimbursements        Reimbursement[]
 
   @@unique([companyId, nikHash])
   @@unique([companyId, employeeCode])
@@ -481,6 +530,7 @@ model ApprovalWorkflow {
   leaveRequests         LeaveRequest[]
   attendanceCorrections AttendanceCorrection[]
   overtimeEntries       OvertimeEntry[]
+  reimbursements        Reimbursement[]
 
   @@unique([companyId, requestType, version])
   @@index([companyId, requestType, isActive])
@@ -766,4 +816,205 @@ model Notification {
 
   @@index([userId, isRead, createdAt])
   @@map("notifications")
+}
+
+// ───────────────────────────── Rate Regulasi Payroll (Fase 3) ─────────────────────────────
+
+model TerRate {
+  id           String   @id @default(uuid()) @db.Uuid
+  kategori     String   @db.Char(1) // A, B, C
+  batasBawah   BigInt   @map("batas_bawah")
+  batasAtas    BigInt?  @map("batas_atas")
+  tarif        Decimal  @db.Decimal(6, 5)
+  berlakuSejak DateTime @map("berlaku_sejak") @db.Date
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([berlakuSejak, kategori, batasBawah])
+  @@map("ter_rates")
+}
+
+model PtkpRate {
+  id            String   @id @default(uuid()) @db.Uuid
+  status        String   @db.VarChar(5) // TK/0 .. K/3
+  amountPerYear Decimal  @map("amount_per_year") @db.Decimal(15, 0)
+  terCategory   String   @map("ter_category") @db.Char(1) // A, B, C
+  berlakuSejak  DateTime @map("berlaku_sejak") @db.Date
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([status, berlakuSejak])
+  @@map("ptkp_rates")
+}
+
+model Pph21ProgressiveRate {
+  id           String   @id @default(uuid()) @db.Uuid
+  batasBawah   BigInt   @map("batas_bawah")
+  batasAtas    BigInt?  @map("batas_atas")
+  tarif        Decimal  @db.Decimal(6, 5)
+  berlakuSejak DateTime @map("berlaku_sejak") @db.Date
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([berlakuSejak, batasBawah])
+  @@map("pph21_progressive_rates")
+}
+
+model BpjsRate {
+  id                    String      @id @default(uuid()) @db.Uuid
+  program               BpjsProgram
+  riskClass             String?     @map("risk_class") @db.VarChar(5) // khusus JKK (I..V)
+  companyPercentage     Decimal     @map("company_percentage") @db.Decimal(6, 5)
+  employeePercentage    Decimal     @map("employee_percentage") @db.Decimal(6, 5)
+  extraFamilyPercentage Decimal?    @map("extra_family_percentage") @db.Decimal(6, 5)
+  wageCap               BigInt?     @map("wage_cap")
+  berlakuSejak          DateTime    @map("berlaku_sejak") @db.Date
+  createdAt             DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  // UNIQUE (program, risk_class, berlaku_sejak) NULLS NOT DISTINCT dibuat di migrasi SQL
+  @@index([berlakuSejak, program])
+  @@map("bpjs_rates")
+}
+
+model OvertimeRule {
+  id           String          @id @default(uuid()) @db.Uuid
+  companyId    String?         @map("company_id") @db.Uuid // null = aturan default PP 35/2021
+  workPattern  WorkPattern     @map("work_pattern")
+  dayType      OvertimeDayType @map("day_type")
+  hourFrom     Int             @map("hour_from")
+  hourTo       Int?            @map("hour_to")
+  multiplier   Decimal         @db.Decimal(3, 2)
+  berlakuSejak DateTime        @map("berlaku_sejak") @db.Date
+  createdAt    DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([berlakuSejak, workPattern, dayType])
+  @@map("overtime_rules")
+}
+
+// ───────────────────────────── Payroll Runs & Slips (Fase 4) ─────────────────────────────
+
+model PayrollPeriod {
+  id               String              @id @default(uuid()) @db.Uuid
+  companyId        String              @map("company_id") @db.Uuid
+  year             Int
+  month            Int
+  runType          PayrollRunType      @default(regular) @map("run_type")
+  runSequence      Int                 @default(1) @map("run_sequence")
+  attendanceStart  DateTime            @map("attendance_start") @db.Date
+  attendanceEnd    DateTime            @map("attendance_end") @db.Date
+  payDate          DateTime            @map("pay_date") @db.Date
+  isFinalTaxPeriod Boolean             @default(false) @map("is_final_tax_period")
+  status           PayrollPeriodStatus @default(draft)
+  processedBy      String?             @map("processed_by") @db.Uuid
+  approvedBy       String?             @map("approved_by") @db.Uuid
+  rejectionNotes   String?             @map("rejection_notes")
+  lockedAt         DateTime?           @map("locked_at") @db.Timestamptz(6)
+  createdAt        DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  company        Company         @relation(fields: [companyId], references: [id])
+  details        PayrollDetail[]
+  reimbursements Reimbursement[]
+
+  @@unique([companyId, year, month, runType, runSequence])
+  @@index([companyId, year, month])
+  @@map("payroll_periods")
+}
+
+model PayrollDetail {
+  id                         String      @id @default(uuid()) @db.Uuid
+  payrollPeriodId            String      @map("payroll_period_id") @db.Uuid
+  employeeId                 String      @map("employee_id") @db.Uuid
+  baseSalaryEncrypted        String      @map("base_salary_encrypted")
+  fixedAllowanceEncrypted    String      @map("fixed_allowance_encrypted")
+  variableAllowanceEncrypted String      @map("variable_allowance_encrypted")
+  overtimeAmountEncrypted    String      @map("overtime_amount_encrypted")
+  irregularIncomeEncrypted   String      @map("irregular_income_encrypted")
+  bpjsWageBase               Decimal     @map("bpjs_wage_base") @db.Decimal(15, 0)
+  bpjsKesEmployee            Decimal     @map("bpjs_kes_employee") @db.Decimal(15, 0)
+  bpjsKesCompany             Decimal     @map("bpjs_kes_company") @db.Decimal(15, 0)
+  jhtEmployee                Decimal     @map("jht_employee") @db.Decimal(15, 0)
+  jhtCompany                 Decimal     @map("jht_company") @db.Decimal(15, 0)
+  jkkCompany                 Decimal     @map("jkk_company") @db.Decimal(15, 0)
+  jkmCompany                 Decimal     @map("jkm_company") @db.Decimal(15, 0)
+  jpEmployee                 Decimal     @map("jp_employee") @db.Decimal(15, 0)
+  jpCompany                  Decimal     @map("jp_company") @db.Decimal(15, 0)
+  pph21GrossEncrypted        String      @map("pph21_gross_encrypted")
+  pph21Method                Pph21Method @map("pph21_method")
+  pph21AmountEncrypted       String      @map("pph21_amount_encrypted")
+  pph21RefundEncrypted       String      @map("pph21_refund_encrypted")
+  isFinalTaxPeriod           Boolean     @default(false) @map("is_final_tax_period")
+  otherDeductionsEncrypted   String      @map("other_deductions_encrypted")
+  netSalaryEncrypted         String      @map("net_salary_encrypted")
+  rateSnapshot               Json        @map("rate_snapshot")
+  createdAt                  DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                  DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  period     PayrollPeriod      @relation(fields: [payrollPeriodId], references: [id], onDelete: Cascade)
+  employee   Employee           @relation(fields: [employeeId], references: [id])
+  components PayrollComponent[]
+
+  @@unique([payrollPeriodId, employeeId])
+  @@map("payroll_details")
+}
+
+model PayrollComponent {
+  id              String               @id @default(uuid()) @db.Uuid
+  payrollDetailId String               @map("payroll_detail_id") @db.Uuid
+  componentType   PayrollComponentKind @map("component_type")
+  componentCode   String               @map("component_code") @db.VarChar(50)
+  componentName   String               @map("component_name") @db.VarChar(100)
+  amountEncrypted String               @map("amount_encrypted")
+  referenceId     String?              @map("reference_id") @db.Uuid
+
+  detail PayrollDetail @relation(fields: [payrollDetailId], references: [id], onDelete: Cascade)
+
+  @@index([payrollDetailId])
+  @@map("payroll_components")
+}
+
+model TaxYearSummary {
+  id                  String   @id @default(uuid()) @db.Uuid
+  employeeId          String   @map("employee_id") @db.Uuid
+  companyId           String   @map("company_id") @db.Uuid
+  year                Int
+  ptkpStatus          String   @map("ptkp_status") @db.VarChar(5)
+  monthsWorked        Int      @default(0) @map("months_worked")
+  grossYtdEncrypted   String   @map("gross_ytd_encrypted")
+  jhtEmployeeYtd      Decimal  @default(0) @map("jht_employee_ytd") @db.Decimal(15, 0)
+  jpEmployeeYtd       Decimal  @default(0) @map("jp_employee_ytd") @db.Decimal(15, 0)
+  pph21YtdEncrypted   String   @map("pph21_ytd_encrypted")
+  updatedAt           DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  employee Employee @relation(fields: [employeeId], references: [id])
+
+  @@unique([employeeId, companyId, year])
+  @@map("tax_year_summaries")
+}
+
+// ───────────────────────────── Reimbursement (Fase 5) ─────────────────────────────
+
+model Reimbursement {
+  id                  String                @id @default(uuid()) @db.Uuid
+  companyId           String                @map("company_id") @db.Uuid
+  employeeId          String                @map("employee_id") @db.Uuid
+  category            ReimbursementCategory
+  title               String                @db.VarChar(150)
+  expenseDate         DateTime              @map("expense_date") @db.Date
+  amount              Decimal               @db.Decimal(15, 0)
+  description         String
+  receiptRef          String?               @map("receipt_ref") @db.VarChar(200)
+  status              RequestStatus         @default(pending)
+  workflowId          String                @map("workflow_id") @db.Uuid
+  currentApprovalStep Int                   @default(1) @map("current_approval_step")
+  paidPayrollPeriodId String?               @map("paid_payroll_period_id") @db.Uuid
+  createdAt           DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  company           Company          @relation(fields: [companyId], references: [id])
+  employee          Employee         @relation(fields: [employeeId], references: [id])
+  workflow          ApprovalWorkflow @relation(fields: [workflowId], references: [id])
+  paidPayrollPeriod PayrollPeriod?   @relation(fields: [paidPayrollPeriodId], references: [id])
+
+  @@index([companyId, status])
+  @@index([employeeId, createdAt(sort: Desc)])
+  @@index([companyId, status, paidPayrollPeriodId])
+  @@map("reimbursements")
 }

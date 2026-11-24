@@ -133,7 +133,47 @@ export const LABELS = {
     reimbursement: 'Reimbursement',
     payroll: 'Payroll',
   } as Record<string, string>,
+  payrollRunType: {
+    regular: 'Reguler bulanan',
+    thr: 'THR',
+    bonus: 'Bonus',
+    correction: 'Koreksi',
+    final_settlement: 'Final settlement',
+  } as Record<string, string>,
+  payrollStatus: {
+    draft: 'Draft',
+    pending_approval: 'Menunggu Finance',
+    approved: 'Disetujui',
+    locked: 'Terkunci',
+  } as Record<string, string>,
+  reimbursementCategory: {
+    transport: 'Transportasi',
+    medical: 'Kesehatan / Medis',
+    meal: 'Konsumsi / Makan',
+    office_supply: 'Perlengkapan Kerja',
+    travel: 'Perjalanan Dinas',
+    other: 'Lainnya',
+  } as Record<string, string>,
 } as const;
+
+export const MONTHS_ID = [
+  'Januari',
+  'Februari',
+  'Maret',
+  'April',
+  'Mei',
+  'Juni',
+  'Juli',
+  'Agustus',
+  'September',
+  'Oktober',
+  'November',
+  'Desember',
+];
+
+export function formatMonthYear(month: number, year: number): string {
+  return `${MONTHS_ID[month - 1] ?? month} ${year}`;
+}
 
 export const PTKP_STATUSES = ['TK/0', 'TK/1', 'TK/2', 'TK/3', 'K/0', 'K/1', 'K/2', 'K/3'];
 

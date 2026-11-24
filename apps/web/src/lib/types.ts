@@ -302,6 +302,7 @@ export interface LeaveRequest {
   isHalfDay: boolean;
   totalDays: number;
   reason: string;
+  attachmentKey?: string | null;
   status: RequestStatus;
   currentApprovalStep: number;
   createdAt: string;
@@ -342,6 +343,7 @@ export interface PendingApproval {
   stepOrder: number;
   totalSteps: number;
   onBehalfOf: string | null;
+  attachmentKey?: string | null;
   createdAt: string;
 }
 
@@ -353,4 +355,167 @@ export interface AppNotification {
   isRead: boolean;
   linkUrl: string | null;
   createdAt: string;
+}
+
+// ───────────── Fase 4 (Payroll & Slip Gaji) ─────────────
+
+export type PayrollRunType = 'regular' | 'thr' | 'bonus' | 'correction' | 'final_settlement';
+export type PayrollPeriodStatus = 'draft' | 'pending_approval' | 'approved' | 'locked';
+
+export interface PayrollPeriodRow {
+  id: string;
+  year: number;
+  month: number;
+  runType: PayrollRunType;
+  runSequence: number;
+  attendanceStart: string;
+  attendanceEnd: string;
+  payDate: string;
+  isFinalTaxPeriod: boolean;
+  status: PayrollPeriodStatus;
+  processedBy: string | null;
+  approvedBy: string | null;
+  rejectionNotes: string | null;
+  lockedAt: string | null;
+  employeeCount: number;
+}
+
+export interface PayrollPeriodDetail {
+  period: Omit<PayrollPeriodRow, 'employeeCount'>;
+  totals: {
+    employeeCount: number;
+    grossCash: number;
+    bpjsCompany: number;
+    bpjsEmployee: number;
+    pph21: number;
+    pph21Refund: number;
+    netSalary: number;
+    totalCompanyCost: number;
+  };
+  departmentReport: {
+    departmentId: string;
+    departmentName: string;
+    employeeCount: number;
+    grossCash: number;
+    bpjsCompany: number;
+    bpjsEmployee: number;
+    pph21: number;
+    netSalary: number;
+    totalCompanyCost: number;
+  }[];
+  items: {
+    id: string;
+    employee: {
+      id: string;
+      employeeCode: string;
+      fullName: string;
+      ptkpStatus: string;
+      department: { id: string; name: string };
+      position: { title: string };
+    };
+    baseSalary: number;
+    fixedAllowance: number;
+    variableAllowance: number;
+    overtimeAmount: number;
+    irregularIncome: number;
+    grossCash: number;
+    bpjsEmployee: number;
+    bpjsCompany: number;
+    pph21Gross: number;
+    pph21Method: 'ter' | 'annual_reconciliation';
+    pph21Amount: number;
+    pph21Refund: number;
+    otherDeductions: number;
+    netSalary: number;
+    totalCompanyCost: number;
+  }[];
+}
+
+export interface PayslipListItem {
+  id: string;
+  periodId: string;
+  year: number;
+  month: number;
+  runType: PayrollRunType;
+  payDate: string;
+  netSalary: number;
+  pph21Amount: number;
+}
+
+export interface PayslipDocument {
+  id: string;
+  company: { name: string; npwp: string | null; address: string | null };
+  period: {
+    year: number;
+    month: number;
+    runType: PayrollRunType;
+    attendanceStart: string;
+    attendanceEnd: string;
+    payDate: string;
+    status: PayrollPeriodStatus;
+  };
+  employee: {
+    employeeCode: string;
+    fullName: string;
+    department: string;
+    position: string;
+    ptkpStatus: string;
+    bankName: string | null;
+  };
+  earnings: { type: string; code: string; name: string; amount: number }[];
+  deductions: { type: string; code: string; name: string; amount: number }[];
+  companyContributions: { type: string; code: string; name: string; amount: number }[];
+  summary: {
+    baseSalary: number;
+    pph21Gross: number;
+    pph21Method: 'ter' | 'annual_reconciliation';
+    pph21Amount: number;
+    pph21Refund: number;
+    netSalary: number;
+  };
+}
+
+export interface PayrollAnalyticsPoint {
+  id: string;
+  year: number;
+  month: number;
+  runType: PayrollRunType;
+  status: PayrollPeriodStatus;
+  payDate: string;
+  employeeCount: number;
+  netSalary: number;
+  pph21: number;
+  bpjsCompany: number;
+  totalCompanyCost: number;
+}
+
+export interface PayrollAnalytics {
+  counts: { draft: number; pendingApproval: number; locked: number };
+  latest: PayrollAnalyticsPoint | null;
+  series: PayrollAnalyticsPoint[];
+}
+
+// ───────────── Fase 5 (Reimbursement) ─────────────
+
+export type ReimbursementCategory = 'transport' | 'medical' | 'meal' | 'office_supply' | 'travel' | 'other';
+
+export interface ReimbursementItem {
+  id: string;
+  category: ReimbursementCategory;
+  title: string;
+  expenseDate: string;
+  amount: number;
+  description: string;
+  receiptRef: string | null;
+  status: RequestStatus;
+  currentApprovalStep: number;
+  paidPayrollPeriodId: string | null;
+  paidPayrollPeriod: { id: string; year: number; month: number } | null;
+  createdAt: string;
+  employee?: {
+    id: string;
+    fullName: string;
+    employeeCode: string;
+    department: string;
+  };
 }

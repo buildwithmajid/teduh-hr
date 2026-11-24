@@ -106,6 +106,80 @@ export const api = {
   delete: <T = void>(path: string) => request<T>('DELETE', path),
 };
 
+export async function downloadFile(path: string, fallbackFilename: string, retry = true): Promise<void> {
+  const headers: Record<string, string> = {};
+  if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
+
+  const res = await fetch(`/api${path}`, { method: 'GET', headers, credentials: 'same-origin' });
+  if (res.status === 401 && retry) {
+    const token = await refreshSession();
+    if (token) return downloadFile(path, fallbackFilename, false);
+    onSessionExpired?.();
+  }
+  if (!res.ok) throw await parseError(res);
+
+  const disp = res.headers.get('Content-Disposition') ?? '';
+  const match = disp.match(/filename="([^"]+)"/);
+  const filename = match?.[1] ?? fallbackFilename;
+
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+export async function uploadAttachment(
+  file: File,
+  retry = true,
+): Promise<{ key: string; originalName: string; mimeType: string; size: number }> {
+  const form = new FormData();
+  form.append('file', file);
+  const headers: Record<string, string> = {};
+  if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
+
+  const res = await fetch('/api/uploads', {
+    method: 'POST',
+    headers,
+    body: form,
+    credentials: 'same-origin',
+  });
+  if (res.status === 401 && retry) {
+    const token = await refreshSession();
+    if (token) return uploadAttachment(file, false);
+    onSessionExpired?.();
+  }
+  if (!res.ok) throw await parseError(res);
+  return (await res.json()) as { key: string; originalName: string; mimeType: string; size: number };
+}
+
+export async function fetchAttachmentBlob(
+  key: string,
+  retry = true,
+): Promise<{ url: string; mimeType: string }> {
+  const headers: Record<string, string> = {};
+  if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
+
+  const res = await fetch(`/api/uploads/${encodeURIComponent(key)}`, {
+    method: 'GET',
+    headers,
+    credentials: 'same-origin',
+  });
+  if (res.status === 401 && retry) {
+    const token = await refreshSession();
+    if (token) return fetchAttachmentBlob(key, false);
+    onSessionExpired?.();
+  }
+  if (!res.ok) throw await parseError(res);
+  const mimeType = res.headers.get('Content-Type') ?? 'application/octet-stream';
+  const blob = await res.blob();
+  return { url: URL.createObjectURL(blob), mimeType };
+}
+
 /** Buang field bernilai "" / undefined supaya validasi API tidak menolak string kosong. */
 export function compact<T extends Record<string, unknown>>(obj: T): Partial<T> {
   return Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== '' && v !== undefined)) as Partial<T>;

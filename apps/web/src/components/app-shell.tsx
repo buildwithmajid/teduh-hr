@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  Banknote,
   Bell,
   Building2,
   CalendarDays,
@@ -9,9 +10,14 @@ import {
   ChevronRight,
   ClipboardList,
   Clock,
+  FileText,
   LayoutDashboard,
   LogOut,
   Menu,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Plus,
+  Receipt,
   Search,
   Settings,
   ShieldCheck,
@@ -46,6 +52,8 @@ const NAV: { section?: string; items: NavItem[] }[] = [
     items: [
       { href: '/', label: 'Beranda', icon: LayoutDashboard },
       { href: '/approvals', label: 'Persetujuan', icon: CheckSquare },
+      { href: '/payslips', label: 'Slip gaji', icon: FileText, needsEmployee: true },
+      { href: '/reimbursements', label: 'Reimbursement', icon: Receipt },
       { href: '/me', label: 'Profil saya', icon: User, needsEmployee: true },
       { href: '/team', label: 'Tim saya', icon: UsersRound, anyOf: ['employee.view_team'] },
     ],
@@ -59,8 +67,9 @@ const NAV: { section?: string; items: NavItem[] }[] = [
     ],
   },
   {
-    section: 'Kepegawaian',
+    section: 'Kepegawaian & Payroll',
     items: [
+      { href: '/payroll', label: 'Run payroll', icon: Banknote, anyOf: ['payroll.view'] },
       { href: '/employees', label: 'Karyawan', icon: Users, anyOf: ['employee.view'] },
       { href: '/organization', label: 'Organisasi', icon: Building2, anyOf: ['department.view'] },
       { href: '/salary-components', label: 'Komponen gaji', icon: Wallet, anyOf: ['salary.view'] },
@@ -79,6 +88,9 @@ const NAV: { section?: string; items: NavItem[] }[] = [
 const ROUTE_LABELS: Record<string, string> = {
   '': 'Beranda',
   approvals: 'Persetujuan',
+  payslips: 'Slip gaji',
+  reimbursements: 'Reimbursement',
+  payroll: 'Run payroll',
   attendance: 'Absensi',
   leaves: 'Cuti & izin',
   overtime: 'Lembur',
@@ -119,7 +131,28 @@ export function AppShell({ children }: { children: ReactNode }) {
   const { logout, can } = useAuth();
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
   const [cmdOpen, setCmdOpen] = useState(false);
+
+  useEffect(() => {
+    try {
+      if (localStorage.getItem('teduhhr:sidebar-collapsed') === '1') setCollapsed(true);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const toggleCollapsed = () => {
+    setCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('teduhhr:sidebar-collapsed', next ? '1' : '0');
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  };
   const pending = useQuery({
     queryKey: ['approvals', 'pending'],
     queryFn: () => api.get<PendingApproval[]>('/approvals/pending'),
@@ -155,24 +188,34 @@ export function AppShell({ children }: { children: ReactNode }) {
   const crumbs = useMemo(() => buildBreadcrumbs(pathname), [pathname]);
   const displayName = me.employee?.fullName ?? me.email;
 
-  const sidebar = (
+  const renderSidebar = (isCompact: boolean) => (
     <div className="flex h-full flex-col">
       {/* Brand + Company */}
-      <div className="flex items-center gap-2.5 border-b border-line px-4 py-4">
+      <div
+        className={cn(
+          'flex items-center gap-2.5 border-b border-line py-4',
+          isCompact ? 'justify-center px-2' : 'px-4',
+        )}
+      >
         <BrandMark />
-        <div className="min-w-0">
-          <p className="text-sm font-semibold leading-tight tracking-tight text-ink">TeduhHR</p>
-          <p className="truncate text-[11px] leading-tight text-ink-muted" title={me.company.name}>
-            {me.company.name}
-          </p>
-        </div>
+        {!isCompact && (
+          <div className="min-w-0">
+            <p className="text-sm font-semibold leading-tight tracking-tight text-ink">TeduhHR</p>
+            <p className="truncate text-[11px] leading-tight text-ink-muted" title={me.company.name}>
+              {me.company.name}
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 space-y-5 overflow-y-auto px-3 py-4" aria-label="Navigasi utama">
+      <nav
+        className={cn('flex-1 space-y-5 overflow-y-auto py-4', isCompact ? 'px-2' : 'px-3')}
+        aria-label="Navigasi utama"
+      >
         {visible.map((group, i) => (
           <div key={i}>
-            {group.section && (
+            {group.section && !isCompact && (
               <p className="mb-1.5 px-2.5 text-[11px] font-semibold uppercase tracking-wider text-ink-subtle">
                 {group.section}
               </p>
@@ -184,9 +227,12 @@ export function AppShell({ children }: { children: ReactNode }) {
                   <li key={item.href}>
                     <Link
                       href={item.href}
+                      title={isCompact ? item.label : undefined}
+                      aria-label={isCompact ? item.label : undefined}
                       aria-current={active ? 'page' : undefined}
                       className={cn(
-                        'flex items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium transition-colors',
+                        'relative flex items-center rounded-md py-2 text-[13px] font-medium transition-colors',
+                        isCompact ? 'justify-center px-2' : 'gap-2.5 px-2.5',
                         active
                           ? 'bg-surface text-ink shadow-[0_1px_2px_rgba(24,23,21,0.06)] ring-1 ring-line'
                           : 'text-ink-muted hover:bg-black/[0.04] hover:text-ink',
@@ -196,9 +242,14 @@ export function AppShell({ children }: { children: ReactNode }) {
                         className={cn('size-4 shrink-0', active ? 'text-brand-600' : 'text-ink-subtle')}
                         aria-hidden
                       />
-                      <span className="flex-1">{item.label}</span>
+                      {!isCompact && <span className="flex-1">{item.label}</span>}
                       {item.href === '/approvals' && pendingCount > 0 && (
-                        <span className="rounded-full bg-brand-600 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-white tabular">
+                        <span
+                          className={cn(
+                            'rounded-full bg-brand-600 font-mono text-[10px] font-semibold text-white tabular',
+                            isCompact ? 'absolute right-1.5 top-1 px-1 py-0 leading-tight' : 'px-1.5 py-0.5',
+                          )}
+                        >
                           {pendingCount}
                         </span>
                       )}
@@ -213,38 +264,63 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       {/* Account footer */}
       <div className="border-t border-line p-3">
-        <div className="flex items-center gap-2.5 rounded-md px-2 py-1.5">
-          <Avatar name={displayName} size="sm" />
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-xs font-medium text-ink">{displayName}</p>
-            <p className="truncate text-[11px] text-ink-muted">
-              {me.roles.map((r) => LABELS.role[r] ?? r).join(', ')}
-            </p>
+        {isCompact ? (
+          <div className="flex flex-col items-center gap-2">
+            <Avatar name={displayName} size="sm" />
+            <button
+              type="button"
+              onClick={() => void logout()}
+              title="Keluar"
+              aria-label="Keluar"
+              className="cursor-pointer rounded-md p-1.5 text-ink-muted transition-colors hover:bg-black/[0.05] hover:text-ink"
+            >
+              <LogOut className="size-4" aria-hidden />
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={() => void logout()}
-            title="Keluar"
-            aria-label="Keluar"
-            className="cursor-pointer rounded-md p-1.5 text-ink-muted transition-colors hover:bg-black/[0.05] hover:text-ink"
-          >
-            <LogOut className="size-4" aria-hidden />
-          </button>
-        </div>
+        ) : (
+          <div className="flex items-center gap-2.5 rounded-md px-2 py-1.5">
+            <Avatar name={displayName} size="sm" />
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-xs font-medium text-ink">{displayName}</p>
+              <p className="truncate text-[11px] text-ink-muted">
+                {me.roles.map((r) => LABELS.role[r] ?? r).join(', ')}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => void logout()}
+              title="Keluar"
+              aria-label="Keluar"
+              className="cursor-pointer rounded-md p-1.5 text-ink-muted transition-colors hover:bg-black/[0.05] hover:text-ink"
+            >
+              <LogOut className="size-4" aria-hidden />
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
 
   return (
-    <div className="bg-architectural min-h-screen lg:pl-60">
+    <div
+      className={cn(
+        'bg-architectural min-h-screen transition-[padding] duration-200 print:bg-white print:pl-0',
+        collapsed ? 'lg:pl-16' : 'lg:pl-60',
+      )}
+    >
       {/* Sidebar desktop */}
-      <aside className="fixed inset-y-0 left-0 hidden w-60 border-r border-line bg-rail lg:block">
-        {sidebar}
+      <aside
+        className={cn(
+          'fixed inset-y-0 left-0 hidden border-r border-line bg-rail transition-[width] duration-200 lg:block print:hidden',
+          collapsed ? 'w-16' : 'w-60',
+        )}
+      >
+        {renderSidebar(collapsed)}
       </aside>
 
       {/* Drawer mobile */}
       {open && (
-        <div className="fixed inset-0 z-40 lg:hidden">
+        <div className="fixed inset-0 z-40 lg:hidden print:hidden">
           <div className="absolute inset-0 bg-ink/40 backdrop-blur-[1px]" onClick={() => setOpen(false)} />
           <aside className="absolute inset-y-0 left-0 w-64 border-r border-line bg-rail shadow-xl">
             <button
@@ -255,13 +331,13 @@ export function AppShell({ children }: { children: ReactNode }) {
             >
               <X className="size-4" />
             </button>
-            {sidebar}
+            {renderSidebar(false)}
           </aside>
         </div>
       )}
 
       {/* Topbar */}
-      <header className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-line bg-canvas/90 px-4 backdrop-blur sm:px-6 lg:px-8">
+      <header className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-line bg-canvas/90 px-4 backdrop-blur sm:px-6 lg:px-8 print:hidden">
         <button
           type="button"
           className="cursor-pointer rounded-md p-1.5 text-ink-muted hover:bg-rail hover:text-ink lg:hidden"
@@ -269,6 +345,15 @@ export function AppShell({ children }: { children: ReactNode }) {
           aria-label="Buka menu"
         >
           <Menu className="size-5" />
+        </button>
+        <button
+          type="button"
+          className="hidden cursor-pointer rounded-md p-1.5 text-ink-muted hover:bg-rail hover:text-ink lg:inline-flex"
+          onClick={toggleCollapsed}
+          title={collapsed ? 'Perluas sidebar' : 'Ciutkan sidebar'}
+          aria-label={collapsed ? 'Perluas sidebar' : 'Ciutkan sidebar'}
+        >
+          {collapsed ? <PanelLeftOpen className="size-4" /> : <PanelLeftClose className="size-4" />}
         </button>
 
         {/* Breadcrumb */}
@@ -308,7 +393,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
       </header>
 
-      <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">{children}</main>
+      <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8 print:max-w-none print:p-0">{children}</main>
 
       <QuickJumpModal open={cmdOpen} onClose={() => setCmdOpen(false)} navItems={flatNav} />
     </div>
@@ -334,6 +419,15 @@ function QuickJumpModal({
   }, [open]);
 
   const q = query.trim().toLowerCase();
+  const quickActions = [
+    ...(can('employee.manage', 'salary.manage')
+      ? [{ label: 'Tambah karyawan baru', href: '/employees/new', icon: Plus }]
+      : []),
+    ...(can('payroll.run') ? [{ label: 'Buat & hitung payroll', href: '/payroll', icon: Banknote }] : []),
+    { label: 'Ajukan reimbursement', href: '/reimbursements', icon: Receipt },
+    { label: 'Absensi hari ini (Clock-in/out)', href: '/attendance', icon: Clock },
+  ].filter((a) => !q || a.label.toLowerCase().includes(q));
+
   const matchedNav = navItems.filter((n) => !q || n.label.toLowerCase().includes(q));
   const matchedEmp = can('employee.view')
     ? (employees.data ?? [])
@@ -368,6 +462,26 @@ function QuickJumpModal({
         </div>
 
         <div className="space-y-3">
+          {quickActions.length > 0 && (
+            <div>
+              <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-ink-subtle">Aksi cepat</p>
+              <ul className="space-y-0.5">
+                {quickActions.map((act) => (
+                  <li key={act.label}>
+                    <button
+                      type="button"
+                      onClick={() => go(act.href)}
+                      className="flex w-full cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-sm font-medium text-brand-800 hover:bg-brand-50/70"
+                    >
+                      <act.icon className="size-4 text-brand-600" aria-hidden />
+                      <span>{act.label}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           {matchedNav.length > 0 && (
             <div>
               <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-ink-subtle">Halaman</p>

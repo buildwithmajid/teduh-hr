@@ -290,7 +290,7 @@ export class ApprovalsService {
   // ───────────── Unified Pending Inbox ─────────────
 
   async listPendingForUser(user: AuthUser) {
-    const [leaves, overtimes, corrections] = await Promise.all([
+    const [leaves, overtimes, corrections, reimbursements] = await Promise.all([
       this.prisma.leaveRequest.findMany({
         where: { status: 'pending', employee: { companyId: user.companyId } },
         include: {
@@ -316,6 +316,14 @@ export class ApprovalsService {
         },
         orderBy: { createdAt: 'asc' },
       }),
+      this.prisma.reimbursement.findMany({
+        where: { status: 'pending', companyId: user.companyId },
+        include: {
+          employee: { select: { id: true, fullName: true, employeeCode: true, department: { select: { name: true } } } },
+          workflow: { include: { steps: { orderBy: { stepOrder: 'asc' } } } },
+        },
+        orderBy: { createdAt: 'asc' },
+      }),
     ]);
 
     const items: {
@@ -328,6 +336,7 @@ export class ApprovalsService {
       stepOrder: number;
       totalSteps: number;
       onBehalfOf: string | null;
+      attachmentKey: string | null;
       createdAt: Date;
     }[] = [];
 
@@ -352,6 +361,7 @@ export class ApprovalsService {
         stepOrder: r.currentApprovalStep,
         totalSteps: r.workflow.steps.length,
         onBehalfOf: match.onBehalfOf,
+        attachmentKey: r.attachmentKey ?? null,
         createdAt: r.createdAt,
       });
     }
@@ -377,6 +387,7 @@ export class ApprovalsService {
         stepOrder: r.currentApprovalStep,
         totalSteps: r.workflow.steps.length,
         onBehalfOf: match.onBehalfOf,
+        attachmentKey: null,
         createdAt: r.createdAt,
       });
     }
@@ -402,6 +413,33 @@ export class ApprovalsService {
         stepOrder: r.currentApprovalStep,
         totalSteps: r.workflow.steps.length,
         onBehalfOf: match.onBehalfOf,
+        attachmentKey: null,
+        createdAt: r.createdAt,
+      });
+    }
+
+    for (const r of reimbursements) {
+      const step = r.workflow.steps.find((s) => s.stepOrder === r.currentApprovalStep);
+      if (!step) continue;
+      const approvers = await this.resolveStepApprovers(user.companyId, r.employeeId, step, 'reimbursement');
+      const match = approvers.find((a) => a.userId === user.userId);
+      if (!match) continue;
+      items.push({
+        requestType: 'reimbursement',
+        requestId: r.id,
+        employee: {
+          id: r.employee.id,
+          fullName: r.employee.fullName,
+          employeeCode: r.employee.employeeCode,
+          department: r.employee.department.name,
+        },
+        title: `Reimbursement: ${r.title}`,
+        subtitle: `Rp ${Number(r.amount).toLocaleString('id-ID')} · ${formatDateOnly(r.expenseDate)}`,
+        reason: r.description,
+        stepOrder: r.currentApprovalStep,
+        totalSteps: r.workflow.steps.length,
+        onBehalfOf: match.onBehalfOf,
+        attachmentKey: r.receiptRef?.startsWith('file:') ? r.receiptRef.slice(5) : null,
         createdAt: r.createdAt,
       });
     }

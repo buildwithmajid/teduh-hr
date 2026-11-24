@@ -11,8 +11,8 @@
   --color-line: #e4e0d8;
   --color-line-strong: #d4cfc5;
   --color-ink: #181715;
-  --color-ink-muted: #656058;
-  --color-ink-subtle: #8c867d;
+  --color-ink-muted: #5c574f;
+  --color-ink-subtle: #6d675f;
 
   /* Terracotta Brand Scale */
   --color-brand-50: #fdf3ef;
@@ -100,6 +100,17 @@
   }
 }
 
+@keyframes drawer-in {
+  from {
+    opacity: 0.4;
+    transform: translateX(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
 dialog[open] {
   animation: modal-in 160ms cubic-bezier(0.16, 1, 0.3, 1);
 }
@@ -113,9 +124,31 @@ dialog::backdrop {
   animation: toast-in 180ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+.animate-drawer-in {
+  animation: drawer-in 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@page {
+  size: A4;
+  margin: 14mm;
+}
+
+@media print {
+  body {
+    background: #ffffff !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .bg-architectural {
+    background-image: none !important;
+    background-color: #ffffff !important;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   dialog[open],
-  .animate-toast-in {
+  .animate-toast-in,
+  .animate-drawer-in {
     animation: none;
   }
 }

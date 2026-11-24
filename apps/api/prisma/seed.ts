@@ -6,11 +6,13 @@
  * Jalankan: npm run db:seed (dari apps/api). Aman dijalankan berulang.
  * Password semua akun demo = SEED_DEFAULT_PASSWORD di .env.
  */
-import { PrismaClient } from '@prisma/client';
+import { Prisma, PrismaClient } from '@prisma/client';
 import { hashPassword } from '../src/auth/password';
 import { PERMISSIONS, SYSTEM_ROLES } from '../src/auth/permissions';
 import { loadConfig } from '../src/config/app-config';
 import { CryptoContext, FieldCrypto } from '../src/common/crypto/field-crypto';
+import { calculateEmployeePayroll } from '../src/payroll/engine/payroll-orchestrator';
+import { EFFECTIVE_DATE_2024, INDONESIA_2024_RATE_SET } from '../src/payroll/rates/seeds/indonesia-2024';
 
 try {
   process.loadEnvFile('.env');
@@ -496,11 +498,12 @@ async function seedPhase2Defaults() {
     }
   }
 
-  // 5. Default Approval Workflows (leave, overtime, attendance_correction)
+  // 5. Default Approval Workflows (leave, overtime, attendance_correction, reimbursement)
   const hrRole = await prisma.role.findFirst({ where: { companyId: null, name: 'hr_admin' } });
+  const financeRole = await prisma.role.findFirst({ where: { companyId: null, name: 'finance' } });
   if (hrRole) {
     const workflows: {
-      requestType: 'leave' | 'overtime' | 'attendance_correction';
+      requestType: 'leave' | 'overtime' | 'attendance_correction' | 'reimbursement';
       name: string;
       steps: { stepOrder: number; approverType: 'direct_supervisor' | 'role'; approverRoleId?: string; fallbackRoleId: string }[];
     }[] = [
@@ -524,6 +527,19 @@ async function seedPhase2Defaults() {
         requestType: 'attendance_correction',
         name: 'Persetujuan Koreksi Absensi',
         steps: [{ stepOrder: 1, approverType: 'direct_supervisor', fallbackRoleId: hrRole.id }],
+      },
+      {
+        requestType: 'reimbursement',
+        name: 'Persetujuan Reimbursement Standar',
+        steps: [
+          { stepOrder: 1, approverType: 'direct_supervisor', fallbackRoleId: hrRole.id },
+          {
+            stepOrder: 2,
+            approverType: 'role',
+            approverRoleId: financeRole?.id ?? hrRole.id,
+            fallbackRoleId: hrRole.id,
+          },
+        ],
       },
     ];
 
@@ -549,10 +565,423 @@ async function seedPhase2Defaults() {
   console.log('Fase 2 seed: shift, hari libur, jenis cuti, saldo cuti, dan workflow approval siap');
 }
 
+async function seedPhase3Rates() {
+  const eff = d(EFFECTIVE_DATE_2024);
+
+  if ((await prisma.terRate.count({ where: { berlakuSejak: eff } })) === 0) {
+    await prisma.terRate.createMany({
+      data: INDONESIA_2024_RATE_SET.terRates.map((r) => ({
+        kategori: r.kategori,
+        batasBawah: BigInt(r.batasBawah),
+        batasAtas: r.batasAtas === null ? null : BigInt(r.batasAtas),
+        tarif: new Prisma.Decimal(r.tarif),
+        berlakuSejak: eff,
+      })),
+    });
+  }
+
+  for (const r of Object.values(INDONESIA_2024_RATE_SET.ptkpRates)) {
+    await prisma.ptkpRate.upsert({
+      where: { status_berlakuSejak: { status: r.status, berlakuSejak: eff } },
+      update: {},
+      create: {
+        status: r.status,
+        amountPerYear: new Prisma.Decimal(r.amountPerYear),
+        terCategory: r.terCategory,
+        berlakuSejak: eff,
+      },
+    });
+  }
+
+  if ((await prisma.pph21ProgressiveRate.count({ where: { berlakuSejak: eff } })) === 0) {
+    await prisma.pph21ProgressiveRate.createMany({
+      data: INDONESIA_2024_RATE_SET.progressiveBrackets.map((b) => ({
+        batasBawah: BigInt(b.batasBawah),
+        batasAtas: b.batasAtas === null ? null : BigInt(b.batasAtas),
+        tarif: new Prisma.Decimal(b.tarif),
+        berlakuSejak: eff,
+      })),
+    });
+  }
+
+  if ((await prisma.bpjsRate.count({ where: { berlakuSejak: eff } })) === 0) {
+    const bpjs = INDONESIA_2024_RATE_SET.bpjs;
+    await prisma.bpjsRate.createMany({
+      data: [
+        {
+          program: 'kesehatan',
+          riskClass: null,
+          companyPercentage: new Prisma.Decimal(bpjs.kesehatan.companyPct),
+          employeePercentage: new Prisma.Decimal(bpjs.kesehatan.employeePct),
+          extraFamilyPercentage: new Prisma.Decimal(bpjs.kesehatan.extraFamilyPct),
+          wageCap: BigInt(bpjs.kesehatan.wageCap),
+          berlakuSejak: eff,
+        },
+        {
+          program: 'jht',
+          riskClass: null,
+          companyPercentage: new Prisma.Decimal(bpjs.jht.companyPct),
+          employeePercentage: new Prisma.Decimal(bpjs.jht.employeePct),
+          berlakuSejak: eff,
+        },
+        {
+          program: 'jkm',
+          riskClass: null,
+          companyPercentage: new Prisma.Decimal(bpjs.jkm.companyPct),
+          employeePercentage: new Prisma.Decimal(0),
+          berlakuSejak: eff,
+        },
+        {
+          program: 'jp',
+          riskClass: null,
+          companyPercentage: new Prisma.Decimal(bpjs.jp.companyPct),
+          employeePercentage: new Prisma.Decimal(bpjs.jp.employeePct),
+          wageCap: BigInt(bpjs.jp.wageCap),
+          berlakuSejak: eff,
+        },
+        ...Object.entries(bpjs.jkkByRiskClass).map(([riskClass, v]) => ({
+          program: 'jkk' as const,
+          riskClass,
+          companyPercentage: new Prisma.Decimal(v.companyPct),
+          employeePercentage: new Prisma.Decimal(0),
+          berlakuSejak: eff,
+        })),
+      ],
+    });
+  }
+
+  if ((await prisma.overtimeRule.count({ where: { berlakuSejak: eff, companyId: null } })) === 0) {
+    await prisma.overtimeRule.createMany({
+      data: INDONESIA_2024_RATE_SET.overtimeRules.map((r) => ({
+        companyId: null,
+        workPattern: r.workPattern,
+        dayType: r.dayType,
+        hourFrom: r.hourFrom,
+        hourTo: r.hourTo,
+        multiplier: new Prisma.Decimal(r.multiplier),
+        berlakuSejak: eff,
+      })),
+    });
+  }
+
+  console.log('Fase 3 seed: tarif TER, PTKP, Pasal 17, BPJS, dan aturan lembur PP 35/2021 siap');
+}
+
+async function seedDemoActivity() {
+  const company = await prisma.company.findFirst({ where: { name: DEMO_COMPANY } });
+  if (!company) return;
+
+  const [settings, employees, hrUser, financeUser, staffUser, defaultShift] = await Promise.all([
+    prisma.companySettings.findUnique({ where: { companyId: company.id } }),
+    prisma.employee.findMany({
+      where: { companyId: company.id, employmentStatus: 'active' },
+      include: {
+        position: { select: { overtimeEligible: true } },
+        salaryComponents: { include: { component: true } },
+      },
+      orderBy: { employeeCode: 'asc' },
+    }),
+    prisma.user.findUnique({ where: { email: 'hr@ruangteduh.test' } }),
+    prisma.user.findUnique({ where: { email: 'finance@ruangteduh.test' } }),
+    prisma.user.findUnique({ where: { email: 'staff@ruangteduh.test' }, include: { employee: true } }),
+    prisma.shift.findFirst({ where: { companyId: company.id } }),
+  ]);
+  if (!settings || !hrUser || !financeUser || employees.length === 0) return;
+
+  // 1. Absensi hari ini (12 dari 16 karyawan sudah clock-in, 2 terlambat) agar KPI Dashboard hidup
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayDate = d(todayStr);
+  if ((await prisma.attendance.count({ where: { workDate: todayDate } })) === 0) {
+    const sampleEmps = employees.slice(0, 12);
+    for (let i = 0; i < sampleEmps.length; i++) {
+      const emp = sampleEmps[i];
+      const isLate = i === 2 || i === 7;
+      const clockInHour = isLate ? '02:25:00.000Z' : '01:48:00.000Z'; // 09:25 vs 08:48 WIB
+      await prisma.attendance.create({
+        data: {
+          employeeId: emp.id,
+          shiftId: defaultShift?.id ?? null,
+          workDate: todayDate,
+          clockInTime: new Date(`${todayStr}T${clockInHour}`),
+          clockInDistanceM: 25 + i * 7,
+          lateMinutes: isLate ? 25 : 0,
+          status: isLate ? 'late' : 'present',
+        },
+      });
+    }
+  }
+
+  // 2. Pengajuan Pending (Cuti, Lembur, Reimbursement) untuk Demo Inbox Persetujuan
+  const staffEmp = staffUser?.employee ?? employees[employees.length - 1];
+  const [leaveWf, overtimeWf, reimbWf, annualType] = await Promise.all([
+    prisma.approvalWorkflow.findFirst({ where: { companyId: company.id, requestType: 'leave', isActive: true } }),
+    prisma.approvalWorkflow.findFirst({ where: { companyId: company.id, requestType: 'overtime', isActive: true } }),
+    prisma.approvalWorkflow.findFirst({ where: { companyId: company.id, requestType: 'reimbursement', isActive: true } }),
+    prisma.leaveType.findUnique({ where: { companyId_code: { companyId: company.id, code: 'annual' } } }),
+  ]);
+
+  if (leaveWf && annualType && (await prisma.leaveRequest.count({ where: { employeeId: staffEmp.id } })) === 0) {
+    await prisma.leaveRequest.create({
+      data: {
+        employeeId: staffEmp.id,
+        leaveTypeId: annualType.id,
+        workflowId: leaveWf.id,
+        startDate: d(daysFromToday(7)),
+        endDate: d(daysFromToday(8)),
+        totalDays: new Prisma.Decimal(2),
+        reason: 'Acara keluarga di luar kota',
+        status: 'pending',
+        currentApprovalStep: 1,
+      },
+    });
+  }
+
+  if (overtimeWf && (await prisma.overtimeEntry.count({ where: { employeeId: staffEmp.id } })) === 0) {
+    const yest = daysFromToday(-1);
+    await prisma.overtimeEntry.create({
+      data: {
+        employeeId: staffEmp.id,
+        workflowId: overtimeWf.id,
+        workDate: d(yest),
+        startTime: new Date(`${yest}T11:00:00.000Z`),
+        endTime: new Date(`${yest}T13:30:00.000Z`),
+        hours: new Prisma.Decimal(2.5),
+        dayType: 'workday',
+        reason: 'Finalisasi gambar kerja proyek Residence Kemang',
+        status: 'pending',
+        currentApprovalStep: 1,
+      },
+    });
+  }
+
+  if (reimbWf && (await prisma.reimbursement.count({ where: { companyId: company.id } })) === 0) {
+    await prisma.reimbursement.createMany({
+      data: [
+        {
+          companyId: company.id,
+          employeeId: staffEmp.id,
+          category: 'transport',
+          title: 'Transportasi survei lokasi proyek Kemang',
+          expenseDate: d(daysFromToday(-3)),
+          amount: new Prisma.Decimal(185000),
+          description: 'Taksi online PP kantor ke lokasi proyek + parkir',
+          receiptRef: 'GRAB-2026-1121',
+          status: 'pending',
+          workflowId: reimbWf.id,
+          currentApprovalStep: 1,
+        },
+        {
+          companyId: company.id,
+          employeeId: staffEmp.id,
+          category: 'office_supply',
+          title: 'Cetak blueprint A1 & sampel material kayu',
+          expenseDate: d(daysFromToday(-10)),
+          amount: new Prisma.Decimal(420000),
+          description: 'Cetak 6 lembar A1 presentasi klien + sampel veneer',
+          receiptRef: 'INV-PRINT-882',
+          status: 'approved',
+          workflowId: reimbWf.id,
+          currentApprovalStep: 2,
+        },
+      ],
+    });
+  }
+
+  // 3. Histori 3 Batch Payroll (Sep & Okt 2026 locked, Nov 2026 pending_approval)
+  if ((await prisma.payrollPeriod.count({ where: { companyId: company.id } })) === 0) {
+    const demoPeriods: {
+      year: number;
+      month: number;
+      start: string;
+      end: string;
+      payDate: string;
+      status: 'locked' | 'pending_approval';
+      overtimeHoursByIndex: Record<number, number>;
+    }[] = [
+      {
+        year: 2026,
+        month: 9,
+        start: '2026-09-01',
+        end: '2026-09-30',
+        payDate: '2026-09-25',
+        status: 'locked',
+        overtimeHoursByIndex: { 4: 4, 8: 3 },
+      },
+      {
+        year: 2026,
+        month: 10,
+        start: '2026-10-01',
+        end: '2026-10-31',
+        payDate: '2026-10-25',
+        status: 'locked',
+        overtimeHoursByIndex: { 3: 6, 6: 4, 10: 5 },
+      },
+      {
+        year: 2026,
+        month: 11,
+        start: '2026-11-01',
+        end: '2026-11-30',
+        payDate: '2026-11-25',
+        status: 'pending_approval',
+        overtimeHoursByIndex: { 2: 5, 5: 3, 9: 4, 12: 2 },
+      },
+    ];
+
+    const enc = (n: number) => crypto.encryptAmount(n, CryptoContext.payrollAmount);
+    const ytdMap = new Map<string, { gross: number; jht: number; jp: number; tax: number; months: number }>();
+
+    for (const dp of demoPeriods) {
+      const period = await prisma.payrollPeriod.create({
+        data: {
+          companyId: company.id,
+          year: dp.year,
+          month: dp.month,
+          runType: 'regular',
+          runSequence: 1,
+          attendanceStart: d(dp.start),
+          attendanceEnd: d(dp.end),
+          payDate: d(dp.payDate),
+          isFinalTaxPeriod: false,
+          status: dp.status,
+          processedBy: hrUser.id,
+          approvedBy: dp.status === 'locked' ? financeUser.id : null,
+          lockedAt: dp.status === 'locked' ? new Date(`${dp.payDate}T08:00:00.000Z`) : null,
+        },
+      });
+
+      for (let idx = 0; idx < employees.length; idx++) {
+        const emp = employees[idx];
+        const baseSalary = crypto.decryptAmount(emp.baseSalaryEncrypted, CryptoContext.baseSalary);
+        const fixedAllowances: { code: string; name: string; amount: number; isTaxable: boolean }[] = [];
+        const variableAllowances: {
+          code: string;
+          name: string;
+          calculation: 'fixed_amount' | 'per_attendance_day';
+          rateAmount: number;
+          isTaxable: boolean;
+        }[] = [];
+
+        for (const sc of emp.salaryComponents) {
+          if (sc.component.type !== 'earning') continue;
+          const amount = crypto.decryptAmount(sc.amountEncrypted, CryptoContext.componentAmount);
+          if (sc.component.isFixed) {
+            fixedAllowances.push({ code: sc.component.code, name: sc.component.name, amount, isTaxable: sc.component.isTaxable });
+          } else {
+            variableAllowances.push({
+              code: sc.component.code,
+              name: sc.component.name,
+              calculation: sc.component.calculation,
+              rateAmount: amount,
+              isTaxable: sc.component.isTaxable,
+            });
+          }
+        }
+
+        const otHours = dp.overtimeHoursByIndex[idx] ?? 0;
+        const result = calculateEmployeePayroll({
+          period: { startDate: dp.start, endDate: dp.end, isFinalTaxPeriod: false },
+          employee: {
+            ptkpStatus: emp.ptkpStatus,
+            workPattern: emp.workPattern ?? settings.defaultWorkPattern,
+            salarySegments: [{ baseSalary, fixedAllowances, activeDays: 21 }],
+            variableAllowances,
+            overtimeEligible: emp.overtimeEligible ?? emp.position.overtimeEligible,
+            bpjsExtraFamilyMembers: emp.bpjsExtraFamilyMembers,
+          },
+          attendance: { periodTotalDays: 21, presentDays: 21, absentDays: 0, unpaidLeaveDays: 0 },
+          overtime: otHours > 0 ? [{ id: `seed-ot-${dp.month}-${idx}`, dayType: 'workday', hours: otHours }] : [],
+          irregularIncome: [],
+          deductions: [],
+          rates: INDONESIA_2024_RATE_SET,
+          policy: {
+            riskClassJkk: settings.riskClassJkk,
+            prorataMethod: settings.prorataMethod,
+            roundingMode: settings.roundingMode,
+            minimumWage: Number(settings.minimumWage),
+            maxDeductionPct: Number(settings.maxDeductionPct),
+          },
+        });
+
+        await prisma.payrollDetail.create({
+          data: {
+            payrollPeriodId: period.id,
+            employeeId: emp.id,
+            baseSalaryEncrypted: enc(result.baseSalary),
+            fixedAllowanceEncrypted: enc(result.fixedAllowanceTotal),
+            variableAllowanceEncrypted: enc(result.variableAllowanceTotal),
+            overtimeAmountEncrypted: enc(result.overtimeAmount),
+            irregularIncomeEncrypted: enc(result.irregularIncomeTotal),
+            bpjsWageBase: new Prisma.Decimal(result.bpjsWageBase),
+            bpjsKesEmployee: new Prisma.Decimal(result.bpjsKesEmployee),
+            bpjsKesCompany: new Prisma.Decimal(result.bpjsKesCompany),
+            jhtEmployee: new Prisma.Decimal(result.jhtEmployee),
+            jhtCompany: new Prisma.Decimal(result.jhtCompany),
+            jkkCompany: new Prisma.Decimal(result.jkkCompany),
+            jkmCompany: new Prisma.Decimal(result.jkmCompany),
+            jpEmployee: new Prisma.Decimal(result.jpEmployee),
+            jpCompany: new Prisma.Decimal(result.jpCompany),
+            pph21GrossEncrypted: enc(result.pph21Gross),
+            pph21Method: result.pph21Method,
+            pph21AmountEncrypted: enc(result.pph21Amount),
+            pph21RefundEncrypted: enc(result.pph21Refund),
+            isFinalTaxPeriod: false,
+            otherDeductionsEncrypted: enc(result.otherDeductionsTotal),
+            netSalaryEncrypted: enc(result.netSalary),
+            rateSnapshot: { effectiveAsOf: EFFECTIVE_DATE_2024, riskClassJkk: settings.riskClassJkk } as Prisma.InputJsonValue,
+            components: {
+              create: result.components.map((c) => ({
+                componentType: c.type,
+                componentCode: c.code,
+                componentName: c.name,
+                amountEncrypted: enc(c.amount),
+                referenceId: null,
+              })),
+            },
+          },
+        });
+
+        if (dp.status === 'locked') {
+          const prev = ytdMap.get(emp.id) ?? { gross: 0, jht: 0, jp: 0, tax: 0, months: 0 };
+          ytdMap.set(emp.id, {
+            gross: prev.gross + result.pph21Gross,
+            jht: prev.jht + result.jhtEmployee,
+            jp: prev.jp + result.jpEmployee,
+            tax: prev.tax + result.pph21Amount,
+            months: prev.months + 1,
+          });
+        }
+      }
+    }
+
+    for (const [employeeId, ytd] of ytdMap.entries()) {
+      const emp = employees.find((e) => e.id === employeeId)!;
+      await prisma.taxYearSummary.upsert({
+        where: { employeeId_companyId_year: { employeeId, companyId: company.id, year: 2026 } },
+        update: {},
+        create: {
+          employeeId,
+          companyId: company.id,
+          year: 2026,
+          ptkpStatus: emp.ptkpStatus,
+          monthsWorked: ytd.months,
+          grossYtdEncrypted: enc(ytd.gross),
+          jhtEmployeeYtd: new Prisma.Decimal(ytd.jht),
+          jpEmployeeYtd: new Prisma.Decimal(ytd.jp),
+          pph21YtdEncrypted: enc(ytd.tax),
+        },
+      });
+    }
+  }
+
+  console.log('Demo activity seed: absensi hari ini, 3 batch payroll (Sep–Nov 2026), cuti, lembur & reimbursement siap');
+}
+
 async function main() {
   await syncRbac();
   await seedDemoCompany();
   await seedPhase2Defaults();
+  await seedPhase3Rates();
+  await seedDemoActivity();
 }
 
 main()

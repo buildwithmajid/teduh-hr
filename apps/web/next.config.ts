@@ -3,6 +3,7 @@ import type { NextConfig } from 'next';
 const API_URL = process.env.API_URL ?? 'http://localhost:3100';
 
 const nextConfig: NextConfig = {
+  output: 'standalone',
   // Semua panggilan /api/* diteruskan ke NestJS, sehingga browser hanya bicara ke satu origin
   // dan cookie refresh token (httpOnly, SameSite=Strict, path /api/auth) tetap first-party.
   async rewrites() {

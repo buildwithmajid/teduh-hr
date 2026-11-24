@@ -98,6 +98,46 @@ export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputE
   return <input ref={ref} className={cn(inputBase, className)} {...rest} />;
 });
 
+/** Input nominal Rupiah dengan pemisah ribuan otomatis (2.500.000) sambil tetap menyimpan string angka polos. */
+export function CurrencyInput({
+  id,
+  value,
+  onChange,
+  placeholder = '0',
+  required,
+  disabled,
+  className,
+}: {
+  id?: string;
+  value: string;
+  onChange: (rawDigits: string) => void;
+  placeholder?: string;
+  required?: boolean;
+  disabled?: boolean;
+  className?: string;
+}) {
+  const digits = value.replace(/\D/g, '');
+  const formatted = digits ? Number(digits).toLocaleString('id-ID') : '';
+  return (
+    <div className="relative">
+      <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 font-mono text-xs text-ink-subtle">
+        Rp
+      </span>
+      <input
+        id={id}
+        type="text"
+        inputMode="numeric"
+        required={required}
+        disabled={disabled}
+        placeholder={placeholder}
+        value={formatted}
+        onChange={(e) => onChange(e.target.value.replace(/\D/g, ''))}
+        className={cn(inputBase, 'pl-9 font-mono tabular', className)}
+      />
+    </div>
+  );
+}
+
 export const Select = forwardRef<HTMLSelectElement, SelectHTMLAttributes<HTMLSelectElement>>(function Select(
   { className, children, ...rest },
   ref,
@@ -599,6 +639,70 @@ export function ConfirmModal({
 
 export function ModalActions({ children }: { children: ReactNode }) {
   return <div className="mt-5 flex justify-end gap-2 border-t border-line pt-4">{children}</div>;
+}
+
+// ───────────── Slide-Over Drawer (Sheet) ─────────────
+
+export function Drawer({
+  open,
+  onClose,
+  title,
+  description,
+  headerActions,
+  children,
+}: {
+  open: boolean;
+  onClose: () => void;
+  title: string;
+  description?: ReactNode;
+  headerActions?: ReactNode;
+  children: ReactNode;
+}) {
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, onClose]);
+
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end print:static print:block">
+      <div
+        className="fixed inset-0 bg-ink/40 backdrop-blur-[1px] print:hidden"
+        onClick={onClose}
+        aria-hidden
+      />
+      <aside
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        className="animate-drawer-in relative z-10 flex h-full w-full max-w-2xl flex-col border-l border-line bg-surface shadow-2xl print:h-auto print:max-w-none print:border-0 print:shadow-none"
+      >
+        <div className="flex items-start justify-between gap-3 border-b border-line px-5 py-4 print:hidden">
+          <div className="min-w-0">
+            <h2 className="truncate text-[15px] font-semibold text-ink">{title}</h2>
+            {description && <p className="mt-0.5 truncate text-xs text-ink-muted">{description}</p>}
+          </div>
+          <div className="flex shrink-0 items-center gap-1.5">
+            {headerActions}
+            <button
+              type="button"
+              onClick={onClose}
+              className="cursor-pointer rounded-md p-1.5 text-ink-subtle transition-colors hover:bg-rail hover:text-ink"
+              aria-label="Tutup panel"
+            >
+              <X className="size-4" />
+            </button>
+          </div>
+        </div>
+        <div className="flex-1 overflow-y-auto px-5 py-5 print:overflow-visible print:p-0">{children}</div>
+      </aside>
+    </div>
+  );
 }
 
 // ───────────── Toast ─────────────

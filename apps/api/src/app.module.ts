@@ -15,7 +15,10 @@ import { LeaveModule } from './leave/leave.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { OrganizationModule } from './organization/organization.module';
 import { OvertimeModule } from './overtime/overtime.module';
+import { PayrollModule } from './payroll/payroll.module';
 import { PrismaModule, PrismaService } from './prisma/prisma.service';
+import { ReimbursementsModule } from './reimbursements/reimbursements.module';
+import { UploadsModule } from './uploads/uploads.module';
 import { UsersModule } from './users/users.module';
 
 @Controller('health')
@@ -46,6 +49,9 @@ class HealthController {
     AttendanceModule,
     LeaveModule,
     OvertimeModule,
+    PayrollModule,
+    ReimbursementsModule,
+    UploadsModule,
   ],
   controllers: [HealthController],
   providers: [

@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  api:
+    name: API — Typecheck, Build, Unit & E2E Tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: hris
+          POSTGRES_PASSWORD: hris_dev_password
+          POSTGRES_DB: hris
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      NODE_ENV: test
+      PORT: 3100
+      DATABASE_URL: postgresql://hris:hris_dev_password@localhost:5433/hris?schema=public
+      JWT_ACCESS_SECRET: ci-access-secret-must-be-at-least-32-chars-long
+      JWT_REFRESH_SECRET: ci-refresh-secret-must-be-at-least-32-chars-long
+      JWT_MFA_SECRET: ci-mfa-secret-must-be-at-least-32-chars-long
+      ENCRYPTION_KEYS: v1:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      HMAC_KEY: fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210
+      CORS_ORIGINS: http://localhost:3001
+      SEED_DEFAULT_PASSWORD: Demo-Hris-2026!
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx prisma generate
+        working-directory: apps/api
+      - run: npm run db:migrate
+        working-directory: apps/api
+      - run: npm run db:seed
+        working-directory: apps/api
+      - run: npm run typecheck -w @hris/api
+      - run: npm run build -w @hris/api
+      - run: npm test -w @hris/api
+      - run: npm run test:e2e -w @hris/api
+
+  web:
+    name: Web — Typecheck & Production Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck -w @hris/web
+      - run: npm run build -w @hris/web

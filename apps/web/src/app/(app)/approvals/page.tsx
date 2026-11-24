@@ -1,8 +1,9 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, X } from 'lucide-react';
+import { Check, Paperclip, X } from 'lucide-react';
 import { FormEvent, useState } from 'react';
+import { AttachmentPreviewModal } from '@/components/attachment-upload';
 import {
   Alert,
   Avatar,
@@ -28,6 +29,7 @@ import type { ApprovalRequestType, PendingApproval } from '@/lib/types';
 function endpointFor(type: ApprovalRequestType, id: string, action: 'approve' | 'reject'): string {
   if (type === 'leave') return `/leaves/requests/${id}/${action}`;
   if (type === 'overtime') return `/overtime/${id}/${action}`;
+  if (type === 'reimbursement') return `/reimbursements/${id}/${action}`;
   return `/attendance/corrections/${id}/${action}`;
 }
 
@@ -35,6 +37,7 @@ export default function ApprovalsPage() {
   const queryClient = useQueryClient();
   const toast = useToast();
   const [target, setTarget] = useState<{ item: PendingApproval; action: 'approve' | 'reject' } | null>(null);
+  const [previewKey, setPreviewKey] = useState<string | null>(null);
 
   const pending = useQuery({
     queryKey: ['approvals', 'pending'],
@@ -105,7 +108,18 @@ export default function ApprovalsPage() {
                     <p className="mt-0.5 font-mono text-xs text-ink-muted">{item.subtitle}</p>
                     <p className="mt-0.5 text-[11px] text-ink-subtle">Diajukan {formatDateTime(item.createdAt)}</p>
                   </Td>
-                  <Td className="max-w-xs text-xs text-ink-muted">{item.reason}</Td>
+                  <Td className="max-w-xs text-xs text-ink-muted">
+                    <p>{item.reason}</p>
+                    {item.attachmentKey && (
+                      <button
+                        type="button"
+                        onClick={() => setPreviewKey(item.attachmentKey!)}
+                        className="mt-1 inline-flex cursor-pointer items-center gap-1 text-[11px] font-medium text-brand-700 hover:underline"
+                      >
+                        <Paperclip className="size-3" aria-hidden /> Lihat dokumen bukti
+                      </button>
+                    )}
+                  </Td>
                   <Td className="whitespace-nowrap font-mono text-xs text-ink-muted">
                     Tahap {item.stepOrder}/{item.totalSteps}
                   </Td>
@@ -157,6 +171,12 @@ export default function ApprovalsPage() {
           </ModalActions>
         </form>
       </Modal>
+
+      <AttachmentPreviewModal
+        attachmentKey={previewKey}
+        onClose={() => setPreviewKey(null)}
+        title="Pratinjau dokumen bukti"
+      />
     </>
   );
 }

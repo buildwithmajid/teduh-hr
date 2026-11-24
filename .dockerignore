@@ -1,0 +1,10 @@
+node_modules
+.git
+.gitignore
+.env
+apps/api/.env
+apps/api/dist
+apps/api/uploads
+apps/web/.next
+coverage
+*.log

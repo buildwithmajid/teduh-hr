@@ -6,3 +6,6 @@ coverage/
 .next/
 next-env.d.ts
 *.tsbuildinfo
+
+# Uploaded local attachment files (dev)
+apps/api/uploads/

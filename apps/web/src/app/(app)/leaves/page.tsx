@@ -1,8 +1,9 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus } from 'lucide-react';
+import { Paperclip, Plus } from 'lucide-react';
 import { FormEvent, useState } from 'react';
+import { AttachmentPreviewModal, AttachmentUpload } from '@/components/attachment-upload';
 import {
   Alert,
   Avatar,
@@ -112,6 +113,7 @@ function MyLeavesTab() {
   const toast = useToast();
   const queryClient = useQueryClient();
   const [cancelling, setCancelling] = useState<LeaveRequest | null>(null);
+  const [previewKey, setPreviewKey] = useState<string | null>(null);
   const rows = useQuery({
     queryKey: ['leaves', 'mine'],
     queryFn: () => api.get<LeaveRequest[]>('/leaves/requests/me'),
@@ -153,7 +155,18 @@ function MyLeavesTab() {
                   {formatDate(r.startDate)} – {formatDate(r.endDate)}
                 </Td>
                 <Td className="text-right font-mono text-xs">{r.totalDays} hari</Td>
-                <Td className="max-w-xs text-xs text-ink-muted">{r.reason}</Td>
+                <Td className="max-w-xs text-xs text-ink-muted">
+                  <p>{r.reason}</p>
+                  {r.attachmentKey && (
+                    <button
+                      type="button"
+                      onClick={() => setPreviewKey(r.attachmentKey!)}
+                      className="mt-1 inline-flex cursor-pointer items-center gap-1 text-[11px] font-medium text-brand-700 hover:underline"
+                    >
+                      <Paperclip className="size-3" aria-hidden /> Lihat dokumen
+                    </button>
+                  )}
+                </Td>
                 <Td>
                   <Badge tone={reqTone(r.status)} dot>{LABELS.requestStatus[r.status]}</Badge>
                 </Td>
@@ -181,6 +194,11 @@ function MyLeavesTab() {
             : 'Yakin ingin membatalkan pengajuan cuti ini?'
         }
         confirmLabel="Batalkan cuti"
+      />
+      <AttachmentPreviewModal
+        attachmentKey={previewKey}
+        onClose={() => setPreviewKey(null)}
+        title="Dokumen pendukung cuti"
       />
     </Card>
   );
@@ -280,6 +298,7 @@ function RequestLeaveModal({ open, onClose, types }: { open: boolean; onClose: (
   const [startDate, setStartDate] = useState(todayISO());
   const [endDate, setEndDate] = useState(todayISO());
   const [isHalfDay, setIsHalfDay] = useState(false);
+  const [attachmentKey, setAttachmentKey] = useState<string | null>(null);
 
   const selectedType = types.find((t) => t.id === leaveTypeId);
   const preview = useQuery({
@@ -310,6 +329,7 @@ function RequestLeaveModal({ open, onClose, types }: { open: boolean; onClose: (
             endDate: isHalfDay ? startDate : endDate,
             isHalfDay,
             reason: f.get('reason'),
+            attachmentKey: attachmentKey ?? undefined,
           });
         }}
       >
@@ -349,6 +369,15 @@ function RequestLeaveModal({ open, onClose, types }: { open: boolean; onClose: (
         )}
         <Field label="Alasan" required>
           {(id) => <Textarea id={id} name="reason" required minLength={3} maxLength={500} />}
+        </Field>
+        <Field label={selectedType?.requiresDocument ? 'Surat dokter / dokumen pendukung (disarankan)' : 'Dokumen pendukung (opsional)'}>
+          {() => (
+            <AttachmentUpload
+              value={attachmentKey}
+              onChange={setAttachmentKey}
+              label="Unggah surat dokter atau lampiran PDF/foto (maks. 5 MB)"
+            />
+          )}
         </Field>
         <ModalActions>
           <Button variant="secondary" onClick={onClose}>Batal</Button>

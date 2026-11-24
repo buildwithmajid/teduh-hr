@@ -33,6 +33,7 @@ export interface CreateLeaveRequestInput {
   endDate: string;
   isHalfDay?: boolean;
   reason: string;
+  attachmentKey?: string;
 }
 
 export interface AdjustBalanceInput {
@@ -270,6 +271,7 @@ export class LeaveService {
           isHalfDay,
           totalDays: new Prisma.Decimal(calc.totalDays),
           reason: dto.reason.trim(),
+          attachmentKey: dto.attachmentKey?.trim() || null,
           status: 'pending',
           currentApprovalStep: 1,
         },

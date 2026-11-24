@@ -84,6 +84,7 @@ export const CryptoContext = {
   bankAccount: 'employees.bank_account',
   npwp: 'employees.npwp',
   componentAmount: 'employee_salary_components.amount',
+  payrollAmount: 'payroll.amount',
   history: (field: string) => `employee_history.${field}`,
   mfaSecret: 'users.mfa_secret',
 } as const;

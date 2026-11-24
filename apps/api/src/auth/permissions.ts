@@ -33,6 +33,13 @@ export const PERMISSIONS = {
   'overtime.view': 'Melihat pengajuan lembur seluruh karyawan',
   'overtime.manage': 'Mengelola data lembur karyawan',
   'approval.manage': 'Mengelola konfigurasi alur persetujuan (workflow)',
+  // Fase 4 — Payroll Run, Approval Finance & Laporan Biaya
+  'payroll.view': 'Melihat run payroll & laporan biaya payroll',
+  'payroll.run': 'Membuat, menghitung, dan mengajukan run payroll',
+  'payroll.approve': 'Memverifikasi, menyetujui, dan mengunci run payroll (Finance)',
+  // Fase 5 — Reimbursement & Export Finance
+  'reimbursement.view': 'Melihat klaim reimbursement seluruh karyawan',
+  'reimbursement.manage': 'Mengelola klaim reimbursement perusahaan',
 } as const;
 
 export type PermissionCode = keyof typeof PERMISSIONS;
@@ -55,13 +62,13 @@ export const SYSTEM_ROLES: SystemRoleDefinition[] = [
   },
   {
     name: 'hr_admin',
-    description: 'Kelola data karyawan, organisasi, absensi, cuti, dan kebijakan',
+    description: 'Kelola data karyawan, organisasi, absensi, cuti, payroll, dan kebijakan',
     requiresMfa: true,
-    permissions: ALL.filter((p) => !['company.create', 'company.manage', 'audit.verify'].includes(p)),
+    permissions: ALL.filter((p) => !['company.create', 'company.manage', 'audit.verify', 'payroll.approve'].includes(p)),
   },
   {
     name: 'finance',
-    description: 'Verifikasi payroll & laporan biaya',
+    description: 'Verifikasi payroll, approval & laporan biaya',
     requiresMfa: true,
     permissions: [
       'department.view',
@@ -72,6 +79,10 @@ export const SYSTEM_ROLES: SystemRoleDefinition[] = [
       'attendance.view',
       'leave.view',
       'overtime.view',
+      'payroll.view',
+      'payroll.approve',
+      'reimbursement.view',
+      'reimbursement.manage',
       'audit.view',
     ],
   },

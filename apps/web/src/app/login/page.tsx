@@ -1,6 +1,6 @@
 'use client';
 
-import { Lock, ShieldCheck } from 'lucide-react';
+import { Eye, EyeOff, ShieldCheck } from 'lucide-react';
 import Image from 'next/image';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { FormEvent, Suspense, useEffect, useState } from 'react';
@@ -24,6 +24,7 @@ function LoginForm() {
   const [step, setStep] = useState<Step>({ kind: 'credentials' });
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -89,8 +90,8 @@ function LoginForm() {
     setError(null);
   };
 
-  const headingByStep: Record<Step['kind'], { title: string; subtitle: string }> = {
-    credentials: { title: 'Masuk ke TeduhHR', subtitle: 'Gunakan email perusahaan yang terdaftar.' },
+  const headingByStep: Record<Step['kind'], { title: string; subtitle?: string }> = {
+    credentials: { title: 'Masuk ke TeduhHR' },
     company: { title: 'Pilih perusahaan', subtitle: 'Akun Anda memiliki akses ke lebih dari satu entitas.' },
     mfa_setup: { title: 'Aktifkan verifikasi 2 langkah', subtitle: 'Wajib untuk peran dengan akses data sensitif.' },
     mfa_verify: { title: 'Verifikasi dua langkah', subtitle: 'Masukkan kode 6 digit dari aplikasi authenticator Anda.' },
@@ -110,7 +111,7 @@ function LoginForm() {
 
       <div className="mb-7">
         <h1 className="text-2xl font-semibold tracking-tight text-ink">{heading.title}</h1>
-        <p className="mt-1.5 text-sm text-ink-muted">{heading.subtitle}</p>
+        {heading.subtitle && <p className="mt-1.5 text-sm text-ink-muted">{heading.subtitle}</p>}
       </div>
 
       {params.get('expired') && step.kind === 'credentials' && (
@@ -141,14 +142,25 @@ function LoginForm() {
           </Field>
           <Field label="Password">
             {(id) => (
-              <Input
-                id={id}
-                type="password"
-                autoComplete="current-password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
+              <div className="relative">
+                <Input
+                  id={id}
+                  type={showPassword ? 'text' : 'password'}
+                  autoComplete="current-password"
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="pr-10"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  aria-label={showPassword ? 'Sembunyikan password' : 'Tampilkan password'}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 cursor-pointer rounded p-1.5 text-ink-subtle transition-colors hover:bg-rail hover:text-ink"
+                >
+                  {showPassword ? <EyeOff className="size-4" aria-hidden /> : <Eye className="size-4" aria-hidden />}
+                </button>
+              </div>
             )}
           </Field>
           <div className="pt-1">
@@ -156,9 +168,6 @@ function LoginForm() {
               Masuk
             </Button>
           </div>
-          <p className="pt-2 text-xs leading-relaxed text-ink-muted">
-            Akun HR Admin, Finance, dan Super Admin memerlukan kode verifikasi dua langkah (TOTP) setelah password.
-          </p>
         </form>
       )}
 
@@ -289,7 +298,7 @@ export default function LoginPage() {
           </div>
         </div>
 
-        <div className="relative z-10 space-y-6 p-10 xl:p-12">
+        <div className="relative z-10 p-10 xl:p-12">
           <div className="max-w-md space-y-3">
             <h2 className="text-2xl font-semibold leading-snug tracking-tight text-white xl:text-[28px]">
               Catatan kepegawaian dan kompensasi dalam satu sistem yang tertib.
@@ -297,17 +306,6 @@ export default function LoginPage() {
             <p className="text-sm text-stone-200/85">
               Studio Arsitektur & Design-Build · Jakarta · Bandung · Bali
             </p>
-          </div>
-
-          <div className="grid gap-2 border-t border-white/15 pt-5 text-xs text-stone-200/85">
-            <div className="flex items-center gap-2">
-              <Lock className="size-3.5 shrink-0 text-brand-300" aria-hidden />
-              <span>NIK, NPWP, rekening & gaji pokok dienkripsi per kolom (AES-256-GCM).</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <ShieldCheck className="size-3.5 shrink-0 text-brand-300" aria-hidden />
-              <span>Audit log append-only dengan verifikasi rantai hash SHA-256.</span>
-            </div>
           </div>
         </div>
       </section>
